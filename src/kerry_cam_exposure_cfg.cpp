@@ -31,7 +31,10 @@ int kerryCamExposureAeLevelMax(uint16_t pid) { return kerryOv2640Is(pid) ? 2 : 5
 uint16_t kerryCamExposureAecValueMax(uint16_t pid) { return kerryOv2640Is(pid) ? 1200 : 65535; }
 
 bool kerryCamExposureClkrcAllowed(uint8_t v) {
-  return v == KERRY_EXP_CLKRC_SENTINEL || v == 0x80 || v == 0xC0 || v == 0xE0;
+  if (v == KERRY_EXP_CLKRC_SENTINEL) return true;
+  if ((v & 0xC0) != 0x80) return false;
+  uint8_t div = v & 0x3F;
+  return div == 1 || div == 3 || div == 7 || div == 15;
 }
 
 uint32_t kerryCamExposureEstimateMs(const kerry_cam_exp_cfg_t *cfg) {

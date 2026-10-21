@@ -45,6 +45,11 @@ void kerryCamExposureLoad() {
   g_cfg.clkrc = prefs.getUChar("exp_clkrc", KERRY_EXP_CLKRC_SENTINEL);
   g_cfg.dummyLines = prefs.getUShort("exp_dummy", 0);
   prefs.end();
+  if (!kerryCamExposureClkrcAllowed(g_cfg.clkrc)) {
+    KERRY_LOGW("exposure", "stored clkrc 0x%02X is not valid, using driver default", (unsigned)g_cfg.clkrc);
+    g_cfg.clkrc = KERRY_EXP_CLKRC_SENTINEL;
+    kerryCamExposureSave();
+  }
   g_lastGood = g_cfg;
   g_hasLastGood = true;
   KERRY_LOGI("exposure", "loaded aec=%d agc=%d clkrc=0x%02X dummy=%u", g_cfg.aecOn ? 1 : 0, g_cfg.agcOn ? 1 : 0,
@@ -99,7 +104,7 @@ void kerryCamExposureFillJson(JsonDocument &doc) {
     const struct {
       uint8_t v;
       const char *label;
-    } opts[] = {{0x80, "Normal (0x80)"}, {0xC0, "Slower (0xC0)"}, {0xE0, "Slowest (0xE0)"}};
+    } opts[] = {{0x81, "÷2"}, {0x83, "÷4"}, {0x87, "÷8"}, {0x8F, "÷16"}};
     for (auto &o : opts) {
       JsonObject row = clkrcOpts.add<JsonObject>();
       row["value"] = o.v;
