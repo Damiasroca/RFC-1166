@@ -325,15 +325,11 @@ static framesize_t applyPsramFrameLimit(framesize_t size) {
 
 static framesize_t effectiveFrameSize() { return applyPsramFrameLimit(camFrameSize); }
 
-const char *kerryCamReapplyExposure() {
-  if (!lockCam(3000)) return "Camera busy";
-  if (!cameraReady) {
-    unlockCam();
-    return "Camera not ready";
-  }
-  const char *err = kerryCamExposureApply(true);
-  unlockCam();
-  return err;
+framesize_t kerryFrameSizeEffective(framesize_t size) { return applyPsramFrameLimit(size); }
+
+bool kerryImageFramesizeListed(framesize_t size) {
+  if (!psramFound() && size > FRAMESIZE_VGA) return false;
+  return frameSizeAllowed(size);
 }
 
 static void ov5640SetCaptureFramesize(sensor_t *sensor, framesize_t fs, bool refocusAfterResize);
@@ -388,6 +384,17 @@ static void unlockCam() {
   if (!camLockHeld) return;
   camLockHeld = false;
   xSemaphoreGive(camLock);
+}
+
+const char *kerryCamReapplyExposure() {
+  if (!lockCam(3000)) return "Camera busy";
+  if (!cameraReady) {
+    unlockCam();
+    return "Camera not ready";
+  }
+  const char *err = kerryCamExposureApply(true);
+  unlockCam();
+  return err;
 }
 
 static void serviceExposureRevertIfNeeded() {

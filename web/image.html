@@ -242,10 +242,17 @@
     var exposureCaps = null;
 
     function syncAecMaxFromDummy() {
-      if (!exposureCaps || exposureCaps.aecBaseLines == null) return;
+      if (!exposureCaps) return;
+      var base = exposureCaps.aecBaseLines;
+      if (exposureCaps.aecBaseLinesBySize) {
+        var fs = parseInt(document.getElementById("framesize").value, 10);
+        var mapped = exposureCaps.aecBaseLinesBySize[String(fs)];
+        if (mapped != null) base = mapped;
+      }
+      if (base == null) return;
       var dummy = parseInt(document.getElementById("dummyLines").value, 10) || 0;
       if (dummy < 0) dummy = 0;
-      var max = exposureCaps.aecBaseLines + dummy;
+      var max = base + dummy;
       if (max > 65535) max = 65535;
       var slider = document.getElementById("aecValue");
       slider.max = String(max);
@@ -309,7 +316,7 @@
       document.getElementById("dummyLines").value = exp.dummyLines != null ? exp.dummyLines : 0;
       document.getElementById("dummyLinesVal").textContent = document.getElementById("dummyLines").value;
       if (caps) {
-        if (caps.aecBaseLines != null) {
+        if (caps.aecBaseLines != null || caps.aecBaseLinesBySize) {
           syncAecMaxFromDummy();
         } else {
           var aecMax = caps.aecMax || 1200;
@@ -343,6 +350,7 @@
     document.getElementById("aecOn").addEventListener("change", syncExposureUi);
     document.getElementById("agcOn").addEventListener("change", syncExposureUi);
     document.getElementById("dummyLines").addEventListener("input", syncAecMaxFromDummy);
+    document.getElementById("framesize").addEventListener("change", syncAecMaxFromDummy);
 
     function exposurePayload() {
       return {

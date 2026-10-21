@@ -32,6 +32,8 @@ bool kerryCameraReady();
 const char *kerryCameraSensorName();
 void kerryImageGet(JsonDocument &doc);
 const char *kerryImageResolveFramesize(int framesize, framesize_t *requested, framesize_t *effective);
+framesize_t kerryFrameSizeEffective(framesize_t size);
+bool kerryImageFramesizeListed(framesize_t size);
 const char *kerryImageSet(int framesize, int brightness, int contrast, int saturation, int flipHSet, int flipVSet);
 const char *kerryCamReapplyExposure();
 

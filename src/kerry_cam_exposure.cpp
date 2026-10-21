@@ -54,7 +54,17 @@ void kerryCamExposureFillJson(JsonDocument &doc) {
   bool known = kerryCameraReady() && s;
   framesize_t fs = s ? s->status.framesize : FRAMESIZE_SVGA;
   caps["aecMax"] = known ? kerryCamExposureAecValueMax(&cfg, pid, fs) : 1200;
-  if (known && kerryOv2640Is(pid)) caps["aecBaseLines"] = kerryOv2640BaseFrameLines(fs);
+  if (known && kerryOv2640Is(pid)) {
+    caps["aecBaseLines"] = kerryOv2640BaseFrameLines(fs);
+    JsonObject bySize = caps["aecBaseLinesBySize"].to<JsonObject>();
+    const framesize_t allowed[] = {FRAMESIZE_QVGA, FRAMESIZE_VGA, FRAMESIZE_SVGA, FRAMESIZE_XGA, FRAMESIZE_HD,
+                                 FRAMESIZE_FHD,  FRAMESIZE_SXGA, FRAMESIZE_UXGA, FRAMESIZE_QXGA};
+    for (framesize_t size : allowed) {
+      if (!kerryImageFramesizeListed(size)) continue;
+      framesize_t effective = kerryFrameSizeEffective(size);
+      bySize[String((int)size)] = kerryOv2640BaseFrameLines(effective);
+    }
+  }
   caps["aeLevelMin"] = known ? kerryCamExposureAeLevelMin(pid) : -5;
   caps["aeLevelMax"] = known ? kerryCamExposureAeLevelMax(pid) : 5;
   caps["supportsClkrc"] = known && kerryOv2640Is(pid);
