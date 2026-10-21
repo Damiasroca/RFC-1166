@@ -100,3 +100,13 @@ const char *kerryOv2640ApplyTiming(sensor_t *s, uint8_t clkrc, uint16_t dummyLin
   KERRY_LOGD("exposure", "ov2640 timing clkrc=0x%02X dummy=%u", gotClk < 0 ? 0 : (unsigned)gotClk, gotDummy);
   return nullptr;
 }
+
+int kerryOv2640SetAecValue(sensor_t *s, int value) {
+  if (!s || !s->set_reg) return -1;
+  if (value < 0) value = 0;
+  if (value > 65535) value = 65535;
+  if (s->set_reg(s, 0x0104, 0x03, value & 0x03) != 0) return -1;
+  if (s->set_reg(s, 0x0110, 0xFF, (value >> 2) & 0xFF) != 0) return -1;
+  if (s->set_reg(s, 0x0145, 0x3F, (value >> 10) & 0x3F) != 0) return -1;
+  return 0;
+}

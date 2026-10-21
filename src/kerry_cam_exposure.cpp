@@ -94,7 +94,9 @@ void kerryCamExposureFillJson(JsonDocument &doc) {
   sensor_t *s = esp_camera_sensor_get();
   uint16_t pid = s ? s->id.PID : 0;
   bool known = kerryCameraReady() && s;
-  caps["aecMax"] = known ? kerryCamExposureAecValueMax(pid) : 1200;
+  framesize_t fs = s ? s->status.framesize : FRAMESIZE_SVGA;
+  caps["aecMax"] = known ? kerryCamExposureAecValueMax(&g_cfg, pid, fs) : 1200;
+  if (known && kerryOv2640Is(pid)) caps["aecBaseLines"] = kerryOv2640BaseFrameLines(fs);
   caps["aeLevelMin"] = known ? kerryCamExposureAeLevelMin(pid) : -5;
   caps["aeLevelMax"] = known ? kerryCamExposureAeLevelMax(pid) : 5;
   caps["supportsClkrc"] = known && kerryOv2640Is(pid);
@@ -208,10 +210,16 @@ const char *kerryCamExposureApply(bool discardFramesAfter) {
     if (s->set_ae_level) s->set_ae_level(s, g_cfg.aeLevel);
   } else {
     if (s->set_exposure_ctrl) s->set_exposure_ctrl(s, 0);
-    if (s->set_aec_value) {
-      int v = g_cfg.aecValue;
-      uint16_t mx = kerryCamExposureAecValueMax(pid);
-      if ((uint16_t)v > mx) v = mx;
+    int v = g_cfg.aecValue;
+    uint16_t mx = kerryCamExposureAecValueMax(&g_cfg, pid, s->status.framesize);
+    if (v > (int)mx) v = (int)mx;
+    if (kerryOv2640Is(pid)) {
+      if (kerryOv2640SetAecValue(s, v) != 0) {
+        KERRY_LOGW("exposure", "OV2640 manual exposure rejected");
+        return "Sensor rejected manual exposure";
+      }
+      s->status.aec_value = (uint16_t)v;
+    } else if (s->set_aec_value) {
       s->set_aec_value(s, v);
     }
   }

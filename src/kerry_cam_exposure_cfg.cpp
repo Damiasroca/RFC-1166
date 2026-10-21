@@ -29,7 +29,13 @@ int kerryCamExposureAeLevelMin(uint16_t pid) { return kerryOv2640Is(pid) ? -2 : 
 
 int kerryCamExposureAeLevelMax(uint16_t pid) { return kerryOv2640Is(pid) ? 2 : 5; }
 
-uint16_t kerryCamExposureAecValueMax(uint16_t pid) { return kerryOv2640Is(pid) ? 1200 : 65535; }
+uint16_t kerryCamExposureAecValueMax(const kerry_cam_exp_cfg_t *cfg, uint16_t pid, framesize_t fs) {
+  if (!kerryOv2640Is(pid)) return 65535;
+  uint32_t lines = (uint32_t)kerryOv2640BaseFrameLines(fs) + (cfg ? cfg->dummyLines : 0);
+  if (lines > 65535) lines = 65535;
+  if (lines == 0) return 1;
+  return (uint16_t)lines;
+}
 
 bool kerryCamExposureClkrcAllowed(uint8_t v) {
   if (v == KERRY_EXP_CLKRC_SENTINEL) return true;
@@ -95,7 +101,7 @@ uint32_t kerryCamExposureEstimateMs(const kerry_cam_exp_cfg_t *cfg, uint16_t pid
 }
 
 const char *kerryCamExposureCfgValidate(const kerry_cam_exp_cfg_t *cfg, uint16_t pid, framesize_t fs) {
-  if (cfg->aecValue > kerryCamExposureAecValueMax(pid)) return "aecValue out of range";
+  if (cfg->aecValue > kerryCamExposureAecValueMax(cfg, pid, fs)) return "aecValue out of range";
   if (cfg->aeLevel < kerryCamExposureAeLevelMin(pid) || cfg->aeLevel > kerryCamExposureAeLevelMax(pid))
     return "aeLevel out of range";
   if (cfg->agcGain > 30) return "agcGain out of range";

@@ -239,6 +239,23 @@
     bindRange("agcGain", "agcGainVal");
     bindRange("dummyLines", "dummyLinesVal");
 
+    var exposureCaps = null;
+
+    function syncAecMaxFromDummy() {
+      if (!exposureCaps || exposureCaps.aecBaseLines == null) return;
+      var dummy = parseInt(document.getElementById("dummyLines").value, 10) || 0;
+      if (dummy < 0) dummy = 0;
+      var max = exposureCaps.aecBaseLines + dummy;
+      if (max > 65535) max = 65535;
+      var slider = document.getElementById("aecValue");
+      slider.max = String(max);
+      document.getElementById("aecMax").textContent = String(max);
+      if (parseInt(slider.value, 10) > max) {
+        slider.value = String(max);
+        document.getElementById("aecValueVal").textContent = String(max);
+      }
+    }
+
     var GAIN_CEIL_LABELS = ["2×", "4×", "8×", "16×", "32×", "64×", "128×"];
 
     function fillGainCeiling(sel, current) {
@@ -280,6 +297,7 @@
 
     function applyExposureFromApi(exp, caps) {
       if (!exp) return;
+      exposureCaps = caps || null;
       document.getElementById("aecOn").checked = !!exp.aecOn;
       document.getElementById("aec2On").checked = !!exp.aec2On;
       document.getElementById("agcOn").checked = !!exp.agcOn;
@@ -300,6 +318,7 @@
         document.getElementById("aeLevel").min = String(caps.aeLevelMin != null ? caps.aeLevelMin : -5);
         document.getElementById("aeLevel").max = String(caps.aeLevelMax != null ? caps.aeLevelMax : 5);
         document.getElementById("ov2640Timing").style.display = caps.supportsClkrc ? "block" : "none";
+        syncAecMaxFromDummy();
         fillGainCeiling(document.getElementById("gainCeiling"), exp.gainCeiling);
         if (caps.supportsClkrc) fillClkrcOptions(caps, exp.clkrc);
       } else {
@@ -312,6 +331,7 @@
 
     document.getElementById("aecOn").addEventListener("change", syncExposureUi);
     document.getElementById("agcOn").addEventListener("change", syncExposureUi);
+    document.getElementById("dummyLines").addEventListener("input", syncAecMaxFromDummy);
 
     function exposurePayload() {
       return {
