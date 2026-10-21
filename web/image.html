@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Camera</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="wrap">
+    <div id="sidebar"></div>
+    <div class="content">
+      <header class="page-head">
+        <h1 class="page-til">Camera</h1>
+        <p class="page-sub">Live preview, resolution, and image tuning. Close the stream before saving resolution changes.</p>
+      </header>
+      <div id="toast" class="notice" style="display:none"></div>
+
+      <section class="content-box preview-wrap">
+        <h2 class="input-box-til">Live preview</h2>
+        <img id="preview" class="preview" src="/capture" alt="Camera preview">
+        <div class="preview-toolbar">
+          <span class="preview-meta" id="previewMeta">—</span>
+          <div class="btn-row">
+            <button type="button" class="btn btn-secondary" onclick="refreshPreview()">Refresh frame</button>
+            <a class="btn" href="/stream" target="_blank" rel="noopener">Open MJPEG stream</a>
+          </div>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Picture settings</h2>
+        <div class="box-body">
+          <div class="fields">
+            <div>
+              <label class="field-label" for="framesize">Resolution</label>
+              <select id="framesize"></select>
+              <p class="hint hint-spaced" id="psramHint"></p>
+            </div>
+            <div>
+              <label class="field-label" for="brightness">Brightness</label>
+              <div class="range-row">
+                <span>−2</span>
+                <input type="range" id="brightness" min="-2" max="2" step="1" value="0">
+                <span class="range-val" id="brightnessVal">0</span>
+                <span>+2</span>
+              </div>
+            </div>
+            <div>
+              <label class="field-label" for="contrast">Contrast</label>
+              <div class="range-row">
+                <span>−2</span>
+                <input type="range" id="contrast" min="-2" max="2" step="1" value="0">
+                <span class="range-val" id="contrastVal">0</span>
+                <span>+2</span>
+              </div>
+            </div>
+            <div>
+              <label class="field-label" for="saturation">Saturation</label>
+              <div class="range-row">
+                <span>−2</span>
+                <input type="range" id="saturation" min="-2" max="2" step="1" value="0">
+                <span class="range-val" id="saturationVal">0</span>
+                <span>+2</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Exposure &amp; gain (night)</h2>
+        <div class="box-body">
+          <p class="hint hint-spaced">Sensor is auto-detected. Long exposure can slow captures and MJPEG — close the stream before saving.</p>
+          <div class="fields">
+            <div class="switch-row">
+              <label class="switch">
+                <input type="checkbox" id="aecOn" checked>
+                <span class="switch-ui"></span>
+                Auto exposure (AEC)
+              </label>
+              <label class="switch" id="aec2Row">
+                <input type="checkbox" id="aec2On">
+                <span class="switch-ui"></span>
+                Night / extended AEC
+              </label>
+              <label class="switch">
+                <input type="checkbox" id="agcOn" checked>
+                <span class="switch-ui"></span>
+                Auto gain (AGC)
+              </label>
+            </div>
+            <div>
+              <label class="field-label" for="aecValue">Manual exposure</label>
+              <div class="range-row">
+                <span id="aecMin">0</span>
+                <input type="range" id="aecValue" min="0" max="1200" step="1" value="600">
+                <span class="range-val" id="aecValueVal">600</span>
+                <span id="aecMax">1200</span>
+              </div>
+            </div>
+            <div>
+              <label class="field-label" for="aeLevel">AE brightness bias</label>
+              <div class="range-row">
+                <span id="aeLevelMin">-5</span>
+                <input type="range" id="aeLevel" min="-5" max="5" step="1" value="0">
+                <span class="range-val" id="aeLevelVal">0</span>
+                <span id="aeLevelMax">5</span>
+              </div>
+            </div>
+            <div>
+              <label class="field-label" for="agcGain">Manual gain</label>
+              <div class="range-row">
+                <span>0</span>
+                <input type="range" id="agcGain" min="0" max="30" step="1" value="15">
+                <span class="range-val" id="agcGainVal">15</span>
+                <span>30</span>
+              </div>
+            </div>
+            <div>
+              <label class="field-label" for="gainCeiling">Gain ceiling (AGC auto)</label>
+              <select id="gainCeiling"></select>
+            </div>
+            <div id="ov2640Timing" style="display:none">
+              <div>
+                <label class="field-label" for="clkrc">Sensor clock (OV2640)</label>
+                <select id="clkrc"></select>
+              </div>
+              <div>
+                <label class="field-label" for="dummyLines">Extra dummy lines (OV2640)</label>
+                <div class="range-row">
+                  <span>0</span>
+                  <input type="range" id="dummyLines" min="0" max="512" step="1" value="0">
+                  <span class="range-val" id="dummyLinesVal">0</span>
+                  <span>512</span>
+                </div>
+              </div>
+            </div>
+            <p class="hint hint-spaced" id="expEstHint">Estimated frame time: —</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">White balance</h2>
+        <div class="box-body">
+          <div class="fields">
+            <div>
+              <label class="field-label" for="awbMode">Mode</label>
+              <select id="awbMode"></select>
+              <p class="hint hint-spaced">Use manual R/G/B or a saved preset for stable night colours.</p>
+            </div>
+            <div>
+              <label class="field-label" for="awbR">Red gain</label>
+              <div class="range-row">
+                <span>0</span>
+                <input type="range" id="awbR" min="0" max="255" step="1" value="94">
+                <span class="range-val" id="awbRVal">94</span>
+                <span>255</span>
+              </div>
+            </div>
+            <div>
+              <label class="field-label" for="awbG">Green gain</label>
+              <div class="range-row">
+                <span>0</span>
+                <input type="range" id="awbG" min="0" max="255" step="1" value="65">
+                <span class="range-val" id="awbGVal">65</span>
+                <span>255</span>
+              </div>
+            </div>
+            <div>
+              <label class="field-label" for="awbB">Blue gain</label>
+              <div class="range-row">
+                <span>0</span>
+                <input type="range" id="awbB" min="0" max="255" step="1" value="84">
+                <span class="range-val" id="awbBVal">84</span>
+                <span>255</span>
+              </div>
+            </div>
+          </div>
+          <div class="fields" style="margin-top:12px">
+            <div>
+              <label class="field-label" for="presetName">Save preset as</label>
+              <input type="text" id="presetName" maxlength="15" placeholder="Night deck">
+            </div>
+          </div>
+          <div class="btn-row" style="margin-top:12px">
+            <button type="button" class="btn btn-secondary" onclick="applyAwb()">Apply white balance</button>
+            <button type="button" class="btn btn-secondary" onclick="saveAwbPreset()">Save preset</button>
+          </div>
+          <div id="awbPresets" class="tiles" style="margin-top:12px"></div>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Orientation</h2>
+        <div class="box-body">
+          <div class="switch-row">
+            <label class="switch">
+              <input type="checkbox" id="flipH">
+              <span class="switch-ui"></span>
+              Horizontal mirror
+            </label>
+            <label class="switch">
+              <input type="checkbox" id="flipV">
+              <span class="switch-ui"></span>
+              Vertical flip
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <div class="btn-row">
+        <button type="button" class="common-btn" id="saveBtn" onclick="saveImage()">Save settings</button>
+      </div>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+  <script>
+    sidebar("image");
+    var previewTimer = null;
+
+    function bindRange(id, labelId) {
+      var input = document.getElementById(id);
+      var label = document.getElementById(labelId);
+      function sync() { label.textContent = input.value; }
+      input.addEventListener("input", sync);
+      sync();
+    }
+
+    bindRange("brightness", "brightnessVal");
+    bindRange("contrast", "contrastVal");
+    bindRange("saturation", "saturationVal");
+    bindRange("awbR", "awbRVal");
+    bindRange("awbG", "awbGVal");
+    bindRange("awbB", "awbBVal");
+    bindRange("aecValue", "aecValueVal");
+    bindRange("aeLevel", "aeLevelVal");
+    bindRange("agcGain", "agcGainVal");
+    bindRange("dummyLines", "dummyLinesVal");
+
+    var GAIN_CEIL_LABELS = ["2×", "4×", "8×", "16×", "32×", "64×", "128×"];
+
+    function fillGainCeiling(sel, current) {
+      sel.innerHTML = "";
+      var autoOpt = document.createElement("option");
+      autoOpt.value = "255";
+      autoOpt.textContent = "Auto (sensor default)";
+      sel.appendChild(autoOpt);
+      for (var i = 0; i <= 6; i++) {
+        var opt = document.createElement("option");
+        opt.value = String(i);
+        opt.textContent = GAIN_CEIL_LABELS[i];
+        sel.appendChild(opt);
+      }
+      sel.value = String(current != null ? current : 255);
+    }
+
+    function fillClkrcOptions(caps, current) {
+      var sel = document.getElementById("clkrc");
+      sel.innerHTML = "";
+      (caps.clkrcOptions || []).forEach(function (row) {
+        var opt = document.createElement("option");
+        opt.value = String(row.value);
+        opt.textContent = row.label;
+        sel.appendChild(opt);
+      });
+      sel.value = String(current != null ? current : 255);
+    }
+
+    function syncExposureUi() {
+      var aecOn = document.getElementById("aecOn").checked;
+      var agcOn = document.getElementById("agcOn").checked;
+      document.getElementById("aecValue").disabled = aecOn;
+      document.getElementById("aeLevel").disabled = !aecOn;
+      document.getElementById("aec2On").disabled = !aecOn;
+      document.getElementById("agcGain").disabled = agcOn;
+      document.getElementById("gainCeiling").disabled = !agcOn;
+    }
+
+    function applyExposureFromApi(exp, caps) {
+      if (!exp) return;
+      document.getElementById("aecOn").checked = !!exp.aecOn;
+      document.getElementById("aec2On").checked = !!exp.aec2On;
+      document.getElementById("agcOn").checked = !!exp.agcOn;
+      document.getElementById("aecValue").value = exp.aecValue != null ? exp.aecValue : 600;
+      document.getElementById("aecValueVal").textContent = document.getElementById("aecValue").value;
+      document.getElementById("aeLevel").value = exp.aeLevel != null ? exp.aeLevel : 0;
+      document.getElementById("aeLevelVal").textContent = document.getElementById("aeLevel").value;
+      document.getElementById("agcGain").value = exp.agcGain != null ? exp.agcGain : 15;
+      document.getElementById("agcGainVal").textContent = document.getElementById("agcGain").value;
+      document.getElementById("dummyLines").value = exp.dummyLines != null ? exp.dummyLines : 0;
+      document.getElementById("dummyLinesVal").textContent = document.getElementById("dummyLines").value;
+      if (caps) {
+        document.getElementById("aecMin").textContent = "0";
+        document.getElementById("aecMax").textContent = String(caps.aecMax || 1200);
+        document.getElementById("aecValue").max = String(caps.aecMax || 1200);
+        document.getElementById("aeLevelMin").textContent = String(caps.aeLevelMin != null ? caps.aeLevelMin : -5);
+        document.getElementById("aeLevelMax").textContent = String(caps.aeLevelMax != null ? caps.aeLevelMax : 5);
+        document.getElementById("aeLevel").min = String(caps.aeLevelMin != null ? caps.aeLevelMin : -5);
+        document.getElementById("aeLevel").max = String(caps.aeLevelMax != null ? caps.aeLevelMax : 5);
+        document.getElementById("ov2640Timing").style.display = caps.supportsClkrc ? "block" : "none";
+        fillGainCeiling(document.getElementById("gainCeiling"), exp.gainCeiling);
+        if (caps.supportsClkrc) fillClkrcOptions(caps, exp.clkrc);
+      } else {
+        fillGainCeiling(document.getElementById("gainCeiling"), exp.gainCeiling);
+      }
+      document.getElementById("expEstHint").textContent =
+        "Estimated frame time: ~" + (exp.estimatedFrameMs != null ? exp.estimatedFrameMs : "—") + " ms";
+      syncExposureUi();
+    }
+
+    document.getElementById("aecOn").addEventListener("change", syncExposureUi);
+    document.getElementById("agcOn").addEventListener("change", syncExposureUi);
+
+    function exposurePayload() {
+      return {
+        aecOn: document.getElementById("aecOn").checked,
+        aec2On: document.getElementById("aec2On").checked,
+        agcOn: document.getElementById("agcOn").checked,
+        aecValue: parseInt(document.getElementById("aecValue").value, 10),
+        aeLevel: parseInt(document.getElementById("aeLevel").value, 10),
+        agcGain: parseInt(document.getElementById("agcGain").value, 10),
+        gainCeiling: parseInt(document.getElementById("gainCeiling").value, 10),
+        clkrc: parseInt(document.getElementById("clkrc").value, 10),
+        dummyLines: parseInt(document.getElementById("dummyLines").value, 10)
+      };
+    }
+
+    var AWB_MODES = [
+      ["0", "Auto"],
+      ["1", "Sunny"],
+      ["2", "Cloudy"],
+      ["3", "Office"],
+      ["4", "Home"]
+    ];
+
+    function fillAwbModes(awb) {
+      var sel = document.getElementById("awbMode");
+      sel.innerHTML = "";
+      var modes = AWB_MODES.slice();
+      (awb.presets || []).forEach(function (p, i) {
+        if (p.used) modes.push([String(5 + i), p.name]);
+      });
+      modes.forEach(function (m) {
+        var opt = document.createElement("option");
+        opt.value = m[0];
+        opt.textContent = m[1];
+        sel.appendChild(opt);
+      });
+      sel.value = String(awb.awb != null ? awb.awb : 0);
+      document.getElementById("awbR").value = awb.awb_r != null ? awb.awb_r : 94;
+      document.getElementById("awbG").value = awb.awb_g != null ? awb.awb_g : 65;
+      document.getElementById("awbB").value = awb.awb_b != null ? awb.awb_b : 84;
+      document.getElementById("awbRVal").textContent = document.getElementById("awbR").value;
+      document.getElementById("awbGVal").textContent = document.getElementById("awbG").value;
+      document.getElementById("awbBVal").textContent = document.getElementById("awbB").value;
+      renderAwbPresets(awb);
+    }
+
+    function renderAwbPresets(awb) {
+      var box = document.getElementById("awbPresets");
+      box.innerHTML = "";
+      (awb.presets || []).forEach(function (p, i) {
+        if (!p.used) return;
+        var tile = document.createElement("div");
+        tile.className = "tile";
+        tile.innerHTML =
+          '<div class="tile-label">' + p.name + '</div>' +
+          '<div class="tile-value">R ' + p.r + ' G ' + p.g + ' B ' + p.b + '</div>' +
+          '<button type="button" class="btn btn-secondary" style="margin-top:8px" data-slot="' + i + '">Delete</button>';
+        tile.querySelector("button").onclick = function () { deleteAwbPreset(i); };
+        box.appendChild(tile);
+      });
+    }
+
+    function applyAwb() {
+      ajax({
+        method: "POST",
+        url: "/api/awb",
+        data: {
+          awb: parseInt(document.getElementById("awbMode").value, 10),
+          r: parseInt(document.getElementById("awbR").value, 10),
+          g: parseInt(document.getElementById("awbG").value, 10),
+          b: parseInt(document.getElementById("awbB").value, 10)
+        },
+        success: function (res) {
+          toast(res.message || "Applied", res.ok ? "ok" : "err");
+          if (res.ok && res.awb) fillAwbModes(res.awb);
+          setTimeout(refreshPreview, 800);
+        },
+        error: function (_, res) { toast((res && res.message) || "Apply failed", "err"); }
+      });
+    }
+
+    function saveAwbPreset() {
+      ajax({
+        method: "POST",
+        url: "/api/awb",
+        data: {
+          savePreset: true,
+          name: document.getElementById("presetName").value,
+          r: parseInt(document.getElementById("awbR").value, 10),
+          g: parseInt(document.getElementById("awbG").value, 10),
+          b: parseInt(document.getElementById("awbB").value, 10)
+        },
+        success: function (res) {
+          toast(res.message || "Saved", res.ok ? "ok" : "err");
+          if (res.ok && res.awb) fillAwbModes(res.awb);
+        },
+        error: function (_, res) { toast((res && res.message) || "Save failed", "err"); }
+      });
+    }
+
+    function deleteAwbPreset(slot) {
+      ajax({
+        method: "POST",
+        url: "/api/awb",
+        data: { deletePreset: slot },
+        success: function (res) {
+          toast(res.message || "Deleted", res.ok ? "ok" : "err");
+          if (res.ok && res.awb) fillAwbModes(res.awb);
+        }
+      });
+    }
+
+    function refreshPreview() {
+      var img = document.getElementById("preview");
+      img.src = "/capture?t=" + Date.now();
+    }
+
+    function startPreviewPoll() {
+      if (previewTimer) clearInterval(previewTimer);
+      previewTimer = setInterval(refreshPreview, 4000);
+    }
+
+    function loadImageSettings() {
+      ajax({
+        url: "/api/image",
+        success: function (res) {
+          var select = document.getElementById("framesize");
+          select.innerHTML = "";
+          (res.sizes || []).forEach(function (row) {
+            var opt = document.createElement("option");
+            opt.value = row.value;
+            opt.textContent = row.label;
+            if (row.value === res.framesize) opt.selected = true;
+            select.appendChild(opt);
+          });
+          document.getElementById("brightness").value = res.brightness || 0;
+          document.getElementById("contrast").value = res.contrast || 0;
+          document.getElementById("saturation").value = res.saturation || 0;
+          document.getElementById("brightnessVal").textContent = res.brightness || 0;
+          document.getElementById("contrastVal").textContent = res.contrast || 0;
+          document.getElementById("saturationVal").textContent = res.saturation || 0;
+          document.getElementById("flipH").checked = !!res.flipH;
+          document.getElementById("flipV").checked = !!res.flipV;
+          document.getElementById("previewMeta").textContent =
+            (res.sensor && res.sensor !== "unknown" ? res.sensor + " · " : "") + (res.framesizeLabel || "—");
+          document.getElementById("psramHint").textContent = res.hasPsram
+            ? "PSRAM detected — resolutions above VGA are available on this sensor."
+            : "No PSRAM — resolution is limited to VGA and below.";
+          if (res.streamActive) {
+            toast("Live stream is open elsewhere. Close it before changing resolution.", "warn");
+          }
+          applyExposureFromApi(res.exposure, res.exposureCaps);
+          if (res.awb) fillAwbModes(res.awb);
+          refreshPreview();
+          startPreviewPoll();
+        }
+      });
+    }
+
+    function saveImage() {
+      var btn = document.getElementById("saveBtn");
+      btn.disabled = true;
+      ajax({
+        method: "POST",
+        url: "/api/image",
+        data: {
+          framesize: parseInt(document.getElementById("framesize").value, 10),
+          brightness: parseInt(document.getElementById("brightness").value, 10),
+          contrast: parseInt(document.getElementById("contrast").value, 10),
+          saturation: parseInt(document.getElementById("saturation").value, 10),
+          flipH: document.getElementById("flipH").checked,
+          flipV: document.getElementById("flipV").checked,
+          exposure: exposurePayload()
+        },
+        success: function (res) {
+          btn.disabled = false;
+          if (res.ok) {
+            toast(res.message || "Saved", "ok");
+            if (res.settings) {
+              var s = res.settings;
+              document.getElementById("previewMeta").textContent =
+                (s.sensor && s.sensor !== "unknown" ? s.sensor + " · " : "") + (s.framesizeLabel || "—");
+              applyExposureFromApi(s.exposure, s.exposureCaps);
+            }
+            setTimeout(refreshPreview, 800);
+          } else {
+            toast(res.message || "Save failed", "err");
+          }
+        },
+        error: function (_, res) {
+          btn.disabled = false;
+          toast((res && res.message) || "Save failed", "err");
+        }
+      });
+    }
+
+    requireAuth(loadImageSettings);
+  </script>
+</body>
+</html>

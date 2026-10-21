@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Overlay</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="wrap">
+    <div id="sidebar"></div>
+    <div class="content">
+      <header class="page-head">
+        <h1 class="page-til">Overlay</h1>
+        <p class="page-sub">Burn GeoPulse navigation data into snapshots and cloud uploads. The live MJPEG stream stays clean.</p>
+      </header>
+      <div id="toast" class="notice" style="display:none"></div>
+
+      <section class="content-box">
+        <h2 class="input-box-til">GeoPulse API</h2>
+        <div class="box-body">
+          <label class="check" style="margin-bottom:14px">
+            <input type="checkbox" id="ovEnabled">
+            <span>Enable overlay on captures and uploads</span>
+          </label>
+          <div class="fields">
+            <div>
+              <label class="field-label" for="gpUser">Username</label>
+              <input class="input input-wide" type="text" id="gpUser" maxlength="64" autocomplete="off">
+            </div>
+            <div>
+              <label class="field-label" for="gpPass">Password</label>
+              <input class="input input-wide" type="password" id="gpPass" maxlength="64" placeholder="Leave blank to keep saved password" autocomplete="off">
+              <label class="pwd-label"><input type="checkbox" autocomplete="off" onchange="togglePwd(this, 'gpPass')"> Show password</label>
+            </div>
+            <div>
+              <label class="field-label" for="gpDevice">Device slug</label>
+              <input class="input input-wide" type="text" id="gpDevice" maxlength="40" placeholder="device slug">
+              <p class="hint hint-spaced">Fetched from <code>/api/device-position/&lt;slug&gt;</code>. API key is obtained via login and refreshed automatically.</p>
+            </div>
+          </div>
+          <div class="btn-row" style="margin-top:14px">
+            <button type="button" class="btn btn-secondary" onclick="testFetch()">Test fetch</button>
+          </div>
+          <p class="hint hint-spaced">Test fetch uses the values above (password field can stay blank if already saved). Ship Wi-Fi must be connected — GeoPulse is not reachable over the camera AP alone.</p>
+          <p class="hint hint-spaced" id="gpStatus">—</p>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Preview &amp; placement</h2>
+        <div class="box-body">
+          <div class="ov-stage" id="stage">
+            <div class="ov-chip ov-lab" data-id="time" id="chip-time"></div>
+            <div class="ov-chip ov-lab" data-id="lat" id="chip-lat"></div>
+            <div class="ov-chip ov-lab" data-id="lon" id="chip-lon"></div>
+            <div class="ov-chip ov-lab" data-id="spd" id="chip-spd"></div>
+            <div class="ov-chip ov-lab" data-id="crs" id="chip-crs"></div>
+            <div class="ov-chip ov-lab" data-id="dev" id="chip-dev"></div>
+            <div class="ov-chip ov-lab" data-id="mtc" id="chip-mtc"></div>
+            <div class="ov-chip ov-lab" data-id="req" id="chip-req"></div>
+          </div>
+          <div class="ov-rows" id="elements" style="margin-top:16px"></div>
+        </div>
+      </section>
+
+      <div class="btn-row">
+        <button type="button" class="common-btn" onclick="saveOverlay()">Save overlay settings</button>
+      </div>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+  <script>
+    sidebar("overlay");
+    var FW = 1600, FH = 1200;
+    var ANCHORS = ["Top left", "Top", "Top right", "Left", "Right", "Bottom left", "Bottom", "Bottom right"];
+    var ELS = [
+      ["time", "Timestamp", 0, 12, 10],
+      ["lat", "Latitude", 2, -12, 10],
+      ["lon", "Longitude", 2, -12, 56],
+      ["spd", "Speed", 2, -12, 102],
+      ["crs", "Course", 2, -12, 148],
+      ["dev", "Device ID", 5, 12, -12],
+      ["mtc", "Match type", 5, 12, -56],
+      ["req", "Requested ID", 5, 12, -100]
+    ];
+    var SAMPLE = {
+      time: "2026-10-04 21:30:00",
+      lat: "Lat 39.445455",
+      lon: "Lon -0.323058",
+      spd: "0 kts",
+      crs: "322°",
+      dev: "Dev EXAMPLE",
+      mtc: "Match exact",
+      req: "Req example"
+    };
+    var hot = "time";
+    var drag = null;
+
+    function anchorSelect(id, value) {
+      var html = '<select class="input input-wide" id="' + id + '">';
+      ANCHORS.forEach(function (name, i) {
+        html += '<option value="' + i + '"' + (i === value ? " selected" : "") + ">" + name + "</option>";
+      });
+      return html + "</select>";
+    }
+
+    function elCard(el) {
+      return '<div class="ov-el" data-id="' + el[0] + '">' +
+        '<div class="ov-name"><span>' + el[1] + '</span>' +
+        '<label class="check"><input type="checkbox" id="el_' + el[0] + '_en" checked /> Show</label></div>' +
+        '<div class="field" style="grid-column:1 / -1"><label class="field-label">Anchor</label>' +
+        anchorSelect("el_" + el[0] + "_an", el[2]) + "</div>" +
+        '<div class="field"><label class="field-label">X</label>' +
+        '<input class="input input-wide" type="number" id="el_' + el[0] + '_x" min="-1000" max="1000" value="' + el[3] + '" /></div>' +
+        '<div class="field"><label class="field-label">Y</label>' +
+        '<input class="input input-wide" type="number" id="el_' + el[0] + '_y" min="-1000" max="1000" value="' + el[4] + '" /></div>' +
+        "</div>";
+    }
+
+    function buildElements() {
+      var rows = [];
+      for (var i = 0; i < ELS.length; i += 2) rows.push(ELS.slice(i, i + 2));
+      document.getElementById("elements").innerHTML = rows.map(function (row) {
+        return '<div class="ov-row">' + row.map(elCard).join("") + "</div>";
+      }).join("");
+      ELS.forEach(function (el) {
+        ["en", "an", "x", "y"].forEach(function (k) {
+          var node = document.getElementById("el_" + el[0] + (k === "en" ? "_en" : "_" + k));
+          if (node) node.addEventListener("change", paint);
+          if (node && k !== "en") node.addEventListener("input", paint);
+        });
+        document.querySelector('.ov-el[data-id="' + el[0] + '"]').addEventListener("click", function () {
+          hot = el[0];
+          paint();
+        });
+      });
+      document.querySelectorAll(".ov-chip").forEach(function (chip) {
+        chip.addEventListener("pointerdown", startDrag);
+      });
+    }
+
+    function clamp(v) {
+      v = Math.round(Number(v) || 0);
+      if (v < -1000) return -1000;
+      if (v > 1000) return 1000;
+      return v;
+    }
+
+    function readEl(id) {
+      return {
+        en: document.getElementById("el_" + id + "_en").checked,
+        an: Number(document.getElementById("el_" + id + "_an").value),
+        x: clamp(document.getElementById("el_" + id + "_x").value),
+        y: clamp(document.getElementById("el_" + id + "_y").value)
+      };
+    }
+
+    function anchorPoint(an, ox, oy) {
+      var ax = 0, ay = 0;
+      if (an === 1 || an === 6) ax = FW / 2;
+      else if (an === 2 || an === 4 || an === 7) ax = FW;
+      if (an === 3 || an === 4) ay = FH / 2;
+      else if (an === 5 || an === 6 || an === 7) ay = FH;
+      return { x: ax + ox * FW / 1000, y: ay + oy * FH / 1000 };
+    }
+
+    function pinBox(an, p, bw, bh) {
+      var x = p.x, y = p.y;
+      if (an === 2 || an === 4 || an === 7) x -= bw;
+      else if (an === 1 || an === 6) x -= bw / 2;
+      if (an === 5 || an === 6 || an === 7) y -= bh;
+      else if (an === 3 || an === 4) y -= bh / 2;
+      return { x: x, y: y };
+    }
+
+    function paint() {
+      var stage = document.getElementById("stage");
+      var sw = stage.clientWidth || 1;
+      ELS.forEach(function (el) {
+        var id = el[0];
+        var chip = document.getElementById("chip-" + id);
+        var g = readEl(id);
+        chip.classList.toggle("is-off", !g.en);
+        chip.classList.toggle("is-hot", hot === id);
+        var row = document.querySelector('.ov-el[data-id="' + id + '"]');
+        if (row) row.classList.toggle("is-hot", hot === id);
+        chip.textContent = SAMPLE[id] || id;
+        var bw = chip.offsetWidth / sw * FW;
+        var bh = chip.offsetHeight / (stage.clientHeight || 1) * FH;
+        var pos = pinBox(g.an, anchorPoint(g.an, g.x, g.y), bw, bh);
+        chip.style.left = (pos.x / FW * 100) + "%";
+        chip.style.top = (pos.y / FH * 100) + "%";
+      });
+    }
+
+    function startDrag(e) {
+      hot = e.currentTarget.getAttribute("data-id");
+      drag = { id: hot, sx: e.clientX, sy: e.clientY, start: readEl(hot) };
+      e.currentTarget.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      paint();
+    }
+
+    document.addEventListener("pointermove", function (e) {
+      if (!drag) return;
+      var stage = document.getElementById("stage");
+      var dx = (e.clientX - drag.sx) / stage.clientWidth * 1000;
+      var dy = (e.clientY - drag.sy) / stage.clientHeight * 1000;
+      document.getElementById("el_" + drag.id + "_x").value = clamp(drag.start.x + dx);
+      document.getElementById("el_" + drag.id + "_y").value = clamp(drag.start.y + dy);
+      paint();
+    });
+    document.addEventListener("pointerup", function () { drag = null; });
+
+    function applySample(sample) {
+      if (!sample) return;
+      Object.keys(sample).forEach(function (k) {
+        if (sample[k]) SAMPLE[k] = sample[k];
+      });
+      paint();
+    }
+
+    function loadOverlay() {
+      ajax({
+        url: "/api/overlay",
+        success: function (res) {
+          document.getElementById("ovEnabled").checked = !!res.enabled;
+          document.getElementById("gpUser").value = res.gpUser || "";
+          document.getElementById("gpDevice").value = res.gpDevice || "";
+          var status = [];
+          if (res.hasApiKey) status.push("API key saved");
+          if (res.keyExpires) status.push("expires ~" + new Date(res.keyExpires * 1000).toLocaleString());
+          if (res.lastError) status.push(res.lastError);
+          document.getElementById("gpStatus").textContent = status.join(" · ") || "Not fetched yet";
+          (res.elements || []).forEach(function (row) {
+            if (!document.getElementById("el_" + row.id + "_en")) return;
+            document.getElementById("el_" + row.id + "_en").checked = !!row.en;
+            document.getElementById("el_" + row.id + "_an").value = row.an;
+            document.getElementById("el_" + row.id + "_x").value = row.x;
+            document.getElementById("el_" + row.id + "_y").value = row.y;
+          });
+          applySample(res.sample);
+        }
+      });
+    }
+
+    function testFetch() {
+      ajax({
+        method: "POST",
+        url: "/api/overlay/test",
+        data: {
+          gpUser: document.getElementById("gpUser").value.trim(),
+          gpPass: document.getElementById("gpPass").value,
+          gpDevice: document.getElementById("gpDevice").value.trim()
+        },
+        success: function (res) {
+          if (res.ok) {
+            toast(res.message || "Fetched", "ok");
+            applySample(res.sample);
+            document.getElementById("gpStatus").textContent = "Last fetch " + (res.fetchMs || "?") + " ms";
+          } else {
+            toast(res.message || "Fetch failed", "err");
+            document.getElementById("gpStatus").textContent = res.message || "Fetch failed";
+          }
+        },
+        error: function (_, res) {
+          var msg = (res && res.message) || "Fetch failed";
+          toast(msg, "err");
+          document.getElementById("gpStatus").textContent = msg;
+        }
+      });
+    }
+
+    function saveOverlay() {
+      var elements = ELS.map(function (el) {
+        var g = readEl(el[0]);
+        return { id: el[0], en: g.en, an: g.an, x: g.x, y: g.y };
+      });
+      ajax({
+        method: "POST",
+        url: "/api/overlay",
+        data: {
+          enabled: document.getElementById("ovEnabled").checked,
+          gpUser: document.getElementById("gpUser").value.trim(),
+          gpPass: document.getElementById("gpPass").value,
+          gpDevice: document.getElementById("gpDevice").value.trim(),
+          elements: elements
+        },
+        success: function (res) {
+          toast(res.ok ? (res.message || "Saved") : (res.message || "Save failed"), res.ok ? "ok" : "err");
+        },
+        error: function (_, res) { toast((res && res.message) || "Save failed", "err"); }
+      });
+    }
+
+    buildElements();
+    requireAuth(function () {
+      loadOverlay();
+      setTimeout(paint, 50);
+    });
+  </script>
+</body>
+</html>

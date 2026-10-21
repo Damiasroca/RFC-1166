@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Overview</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="wrap">
+    <div id="sidebar"></div>
+    <div class="content">
+      <header class="page-head">
+        <h1 class="page-til">Overview</h1>
+        <p class="page-sub">Camera status, quick actions, and cloud upload summary.</p>
+      </header>
+      <div id="toast" class="notice" style="display:none"></div>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Status</h2>
+        <div class="box-body">
+          <div class="tiles">
+            <div class="tile">
+              <div class="tile-label">Sensor</div>
+              <div class="tile-value" id="sensorState">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Router</div>
+              <div class="tile-value" id="wifiState">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Internet</div>
+              <div class="tile-value" id="portalState">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Camera AP</div>
+              <div class="tile-value" id="apState">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Cloud upload</div>
+              <div class="tile-value" id="uploadState">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Ecowitt</div>
+              <div class="tile-value" id="ecoState">—</div>
+            </div>
+          </div>
+          <p class="hint hint-spaced" id="statusText"></p>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Quick actions</h2>
+        <div class="box-body">
+          <div class="action-grid">
+            <a class="action-card" href="/image.html">
+              <strong>Camera settings</strong>
+              <span>Preview, resolution, brightness, contrast, saturation</span>
+            </a>
+            <a class="action-card" href="/overlay.html">
+              <strong>Navigation overlay</strong>
+              <span>GeoPulse position data on captures and uploads</span>
+            </a>
+            <a class="action-card" href="/system.html">
+              <strong>System</strong>
+              <span>Clock, watchdog, firmware upgrade</span>
+            </a>
+            <a class="action-card" href="/stream" target="_blank" rel="noopener">
+              <strong>Live stream</strong>
+              <span>MJPEG feed in a new tab</span>
+            </a>
+            <a class="action-card" href="/capture" target="_blank" rel="noopener">
+              <strong>Snapshot</strong>
+              <span>Single JPEG capture</span>
+            </a>
+            <a class="action-card" href="/flash">
+              <strong>Toggle flash</strong>
+              <span>Auto-off after 30 seconds</span>
+            </a>
+            <a class="action-card" href="/uploads.html">
+              <strong>Ecowitt uploads</strong>
+              <span>Account, registration, and picture interval</span>
+            </a>
+            <button type="button" class="action-card" id="uploadNowBtn" onclick="uploadNow()">
+              <strong>Upload now</strong>
+              <span>Send one frame to the cloud</span>
+            </button>
+            <button type="button" class="action-card" id="retryPortalBtn" onclick="retryPortal()">
+              <strong>Retry portal</strong>
+              <span>Re-run ferry Wi-Fi sign-in</span>
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+  <script>
+    sidebar("index");
+
+    function refreshStatus() {
+      ajax({
+        url: "/api/status",
+        success: function (res) {
+          var sensorEl = document.getElementById("sensorState");
+          sensorEl.textContent = res.sensor || "—";
+          sensorEl.className = "tile-value " + (res.cameraReady ? "ok" : "warn");
+          document.getElementById("wifiState").textContent = res.wifiState || "—";
+          document.getElementById("portalState").textContent = res.portalState || "—";
+          document.getElementById("apState").textContent = res.apState || "—";
+          document.getElementById("uploadState").textContent = res.uploadState || "—";
+          document.getElementById("ecoState").textContent = res.ecowittState || "—";
+          document.getElementById("statusText").textContent = res.statusText || "";
+          var portalEl = document.getElementById("portalState");
+          portalEl.className = "tile-value " + (res.portalState === "Open" ? "ok" : "warn");
+        }
+      });
+    }
+
+    function uploadNow() {
+      var btn = document.getElementById("uploadNowBtn");
+      btn.disabled = true;
+      toast("Uploading…", "");
+      ajax({
+        method: "POST",
+        url: "/api/upload/now",
+        success: function (res) {
+          btn.disabled = false;
+          toast(res.message || (res.ok ? "Upload done" : "Upload failed"), res.ok ? "ok" : "err");
+          refreshStatus();
+        },
+        error: function (_, res) {
+          btn.disabled = false;
+          toast((res && res.message) || "Upload failed", "err");
+          refreshStatus();
+        }
+      });
+    }
+
+    function retryPortal() {
+      ajax({
+        method: "POST",
+        url: "/api/portal/retry",
+        success: function (res) {
+          toast(res.message || "Portal retry scheduled", "ok");
+          refreshStatus();
+        },
+        error: function (_, res) {
+          toast((res && res.message) || "Request failed", "err");
+        }
+      });
+    }
+
+    requireAuth(refreshStatus);
+  </script>
+</body>
+</html>

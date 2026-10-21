@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Network</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="wrap">
+    <div id="sidebar"></div>
+    <div class="content">
+      <header class="page-head">
+        <h1 class="page-til">Network</h1>
+        <p class="page-sub">Connect to any router Wi-Fi. Enable the captive portal section for Crew / ferry Wi-Fi.</p>
+      </header>
+      <div id="toast" class="notice" style="display:none"></div>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Live connection</h2>
+        <div class="box-body">
+          <div class="tiles">
+            <div class="tile">
+              <div class="tile-label">Ship IP</div>
+              <div class="tile-value" id="wifiIp">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Status</div>
+              <div class="tile-value" id="wifiStatus">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Internet / portal</div>
+              <div class="tile-value" id="portalState">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Connected SSID</div>
+              <div class="tile-value" id="connectedSsid">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Gateway</div>
+              <div class="tile-value" id="wifiGateway">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Signal</div>
+              <div class="tile-value" id="wifiRssi">—</div>
+            </div>
+          </div>
+          <p class="hint hint-spaced" id="statusText"></p>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Router Wi-Fi</h2>
+        <div class="box-body">
+          <div class="fields">
+            <div>
+              <label class="field-label" for="ssid">SSID</label>
+              <div class="ssid-row">
+                <div class="ssid-box">
+                  <input class="input input-wide" type="text" id="ssid" maxlength="32" placeholder="Crew, home router, etc.">
+                  <div class="wifi-list-wrap" id="wifiListWrap">
+                    <div id="wifiList"></div>
+                  </div>
+                </div>
+                <button type="button" class="common-btn scan-btn" id="scanBtn" onclick="scanWifi()">Scan</button>
+              </div>
+              <p class="hint hint-spaced">Tap Scan, then pick a network from the list.</p>
+            </div>
+            <div>
+              <label class="field-label" for="wpass">Password</label>
+              <input class="input input-wide" type="password" id="wpass" maxlength="64" placeholder="Leave blank to keep saved password">
+              <label class="pwd-label"><input type="checkbox" autocomplete="off" onchange="togglePwd(this, 'wpass')"> Show password</label>
+              <p class="hint hint-spaced">Use 2.4 GHz Wi-Fi. The camera keeps its own AP (<span id="apName">—</span>) for setup at <span id="apUrl">—</span>.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Captive portal</h2>
+        <div class="box-body">
+          <label class="check">
+            <input type="checkbox" id="usePortal" onchange="togglePortal(this.checked)">
+            <span>This network uses a captive portal (Stena / Crew ferry Wi-Fi)</span>
+          </label>
+          <div id="portalBlock" class="portal-block">
+            <div class="fields">
+              <div>
+                <label class="field-label" for="plogin">Portal login</label>
+                <input class="input input-wide" type="text" id="plogin" maxlength="40">
+              </div>
+              <div>
+                <label class="field-label" for="ppass">Portal password</label>
+                <input class="input input-wide" type="password" id="ppass" maxlength="64" placeholder="Leave blank to keep saved password">
+                <label class="pwd-label"><input type="checkbox" autocomplete="off" onchange="togglePwd(this, 'ppass')"> Show password</label>
+              </div>
+              <label class="check">
+                <input type="checkbox" id="terms">
+                <span>I accept the ferry Wi-Fi terms and conditions</span>
+              </label>
+            </div>
+            <p class="hint hint-spaced">Leave portal fields empty on normal home/office Wi-Fi. Portal sign-in runs automatically after the camera joins the router.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Cloud upload</h2>
+        <div class="box-body">
+          <p class="hint" id="uploadStatus">—</p>
+          <div class="fields" style="margin-top:12px">
+            <div>
+              <label class="field-label" for="upint">Upload interval (seconds, 0 = off)</label>
+              <input class="input input-wide" type="number" id="upint" min="0" max="86400" step="1">
+              <p class="hint hint-spaced">Minimum 5 seconds when enabled. Needs router Wi-Fi and internet. Ecowitt.net is separate and is set on the Uploads page.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="btn-row">
+        <button type="button" class="common-btn" onclick="saveNetwork()">Save and restart</button>
+        <button type="button" class="btn btn-secondary" onclick="refreshNetwork()">Refresh status</button>
+        <button type="button" class="btn btn-secondary" onclick="logout()">Logout</button>
+      </div>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+  <script>
+    sidebar("network");
+    var networkTimer = null;
+    var formDirty = false;
+
+    ["ssid", "wpass", "plogin", "ppass", "upint"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener("input", function () { formDirty = true; });
+    });
+    ["usePortal", "terms"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.addEventListener("change", function () { formDirty = true; });
+    });
+
+    function applyNetwork(res) {
+      document.getElementById("wifiIp").textContent = res.wifiIp || "—";
+      document.getElementById("wifiStatus").textContent = res.wifiStatus || "—";
+      document.getElementById("portalState").textContent = res.portalState || "—";
+      document.getElementById("connectedSsid").textContent = res.connectedSsid || "—";
+      document.getElementById("wifiGateway").textContent = res.wifiGateway || "—";
+      document.getElementById("wifiRssi").textContent =
+        typeof res.wifiRssi === "number" ? res.wifiRssi + " dBm" : "—";
+      document.getElementById("statusText").textContent = res.statusText || "";
+      document.getElementById("uploadStatus").textContent = res.uploadStatus || "—";
+      document.getElementById("apName").textContent = res.apSsid || "—";
+      document.getElementById("apUrl").textContent = res.apUrl || "—";
+
+      var portalEl = document.getElementById("portalState");
+      portalEl.className = "tile-value " + (res.portalState === "Open" ? "ok" : "warn");
+
+      if (!formDirty) {
+        document.getElementById("ssid").value = res.ssid || "";
+        document.getElementById("usePortal").checked = !!res.usePortal;
+        togglePortal(!!res.usePortal);
+        document.getElementById("plogin").value = res.portalUser || "";
+        document.getElementById("terms").checked = !!res.termsAccepted;
+        document.getElementById("upint").value = res.uploadIntervalSec || 0;
+      }
+    }
+
+    function refreshNetwork() {
+      ajax({
+        url: "/api/network",
+        success: function (res) { applyNetwork(res); },
+        error: function (_, res) {
+          toast((res && res.message) || "Could not load network status", "err");
+        }
+      });
+    }
+
+    function startNetworkPoll() {
+      if (networkTimer) clearInterval(networkTimer);
+      networkTimer = setInterval(refreshNetwork, 5000);
+    }
+
+    function scanWifi() {
+      var btn = document.getElementById("scanBtn");
+      btn.disabled = true;
+      btn.textContent = "Scanning…";
+      ajax({
+        url: "/api/wifi/scan",
+        success: function (res) {
+          btn.disabled = false;
+          btn.textContent = "Scan";
+          if (!res.ok) {
+            toast(res.message || "Scan failed", "err");
+            return;
+          }
+          showWifiList(res.networks || []);
+        },
+        error: function (_, res) {
+          btn.disabled = false;
+          btn.textContent = "Scan";
+          toast((res && res.message) || "Scan failed", "err");
+        }
+      });
+    }
+
+    function showWifiList(networks) {
+      var wrap = document.getElementById("wifiListWrap");
+      var list = document.getElementById("wifiList");
+      list.innerHTML = "";
+      if (!networks.length) {
+        toast("No networks found", "warn");
+        wrap.classList.remove("show");
+        return;
+      }
+      networks.forEach(function (net) {
+        var row = document.createElement("div");
+        row.className = "wifi-list-item";
+        row.dataset.ssid = net.ssid;
+        var lock = net.secure ? "🔒 " : "";
+        row.innerHTML = lock + net.ssid + '<span class="wifi-list-meta">' + net.rssi + " dBm</span>";
+        row.onclick = function () {
+          document.getElementById("ssid").value = net.ssid;
+          formDirty = true;
+          wrap.classList.remove("show");
+        };
+        list.appendChild(row);
+      });
+      wrap.classList.add("show");
+    }
+
+    document.getElementById("ssid").addEventListener("focus", function () {
+      if (document.getElementById("wifiList").children.length) {
+        document.getElementById("wifiListWrap").classList.add("show");
+      }
+    });
+    document.getElementById("ssid").addEventListener("input", function () {
+      document.getElementById("wifiListWrap").classList.remove("show");
+    });
+
+    requireAuth(function () {
+      refreshNetwork();
+      startNetworkPoll();
+    });
+
+    function saveNetwork() {
+      ajax({
+        method: "POST",
+        url: "/api/network",
+        data: {
+          ssid: document.getElementById("ssid").value.trim(),
+          wpass: document.getElementById("wpass").value,
+          usePortal: document.getElementById("usePortal").checked,
+          plogin: document.getElementById("plogin").value.trim(),
+          ppass: document.getElementById("ppass").value,
+          terms: document.getElementById("terms").checked,
+          upint: parseInt(document.getElementById("upint").value || "0", 10)
+        },
+        success: function (res) {
+          if (res.ok) {
+            formDirty = false;
+            toast(res.message || "Saved. Restarting…", "ok");
+          } else {
+            toast(res.message || "Save failed", "err");
+          }
+        },
+        error: function (_, res) {
+          toast((res && res.message) || "Save failed", "err");
+        }
+      });
+    }
+  </script>
+</body>
+</html>

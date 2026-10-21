@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Uploads</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="wrap">
+    <div id="sidebar"></div>
+    <div class="content">
+      <header class="page-head">
+        <h1 class="page-til">Uploads</h1>
+        <p class="page-sub">Finestra keeps its own timer. Ecowitt.net is a second destination and can be on at the same time.</p>
+      </header>
+      <div id="toast" class="notice" style="display:none"></div>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Finestra</h2>
+        <div class="box-body">
+          <p class="hint" id="finestraStatus">—</p>
+          <p class="hint hint-spaced" id="finestraEvery">Interval is set on the Network page.</p>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Ecowitt.net</h2>
+        <div class="box-body">
+          <p class="hint" id="ecoStatus">—</p>
+          <p class="hint hint-spaced" id="ecoSched"></p>
+          <div class="fields" style="margin-top:12px">
+            <label class="check">
+              <input type="checkbox" id="ecoEn">
+              <span>Send pictures to Ecowitt</span>
+            </label>
+            <div>
+              <label class="field-label" for="ecoIv">Interval</label>
+              <select id="ecoIv">
+                <option value="0">Off (manual only)</option>
+                <option value="1">5 minutes</option>
+                <option value="2">10 minutes</option>
+                <option value="3">15 minutes</option>
+                <option value="4">20 minutes</option>
+                <option value="5">25 minutes</option>
+              </select>
+              <p class="hint hint-spaced">The first picture goes out 5 seconds after this is turned on. Later pictures use the interval. Upload now still works when the interval is off.</p>
+            </div>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="common-btn" id="ecoSave" onclick="saveEco()">Save Ecowitt schedule</button>
+            <button type="button" class="btn btn-secondary" id="ecoNow" onclick="uploadEco()">Upload now</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Ecowitt account</h2>
+        <div class="box-body">
+          <p class="hint" id="ecoMsg" style="white-space:pre-line"></p>
+          <div class="tiles" id="ecoTiles"></div>
+
+          <div id="ecoLogin" style="display:none">
+            <div class="fields" style="margin-top:16px">
+              <div>
+                <label class="field-label" for="ecoAcct">Account</label>
+                <input class="input input-wide" type="text" id="ecoAcct" maxlength="80" autocomplete="username" placeholder="name@email">
+              </div>
+              <div>
+                <label class="field-label" for="ecoPwd">Password</label>
+                <input class="input input-wide" type="password" id="ecoPwd" maxlength="64" autocomplete="current-password" placeholder="Ecowitt password">
+                <label class="pwd-label"><input type="checkbox" autocomplete="off" onchange="togglePwd(this, 'ecoPwd')"> Show password</label>
+                <p class="hint hint-spaced" id="ecoPwdHint"></p>
+              </div>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="common-btn" onclick="loginEco()">Log in</button>
+            </div>
+          </div>
+
+          <div id="ecoRegister" style="display:none">
+            <div class="fields" style="margin-top:16px">
+              <div>
+                <label class="field-label" for="ecoName">Camera name</label>
+                <input class="input input-wide" type="text" id="ecoName" maxlength="31" placeholder="Kerry-Camera">
+                <p class="hint hint-spaced">Letters, numbers, space, dot, dash, underscore. Registration uses the latest GeoPulse position and time zone.</p>
+                <p class="hint" id="ecoLoc"></p>
+              </div>
+            </div>
+            <div class="btn-row">
+              <button type="button" class="common-btn" onclick="registerEco()">Register this camera</button>
+            </div>
+          </div>
+
+          <h3 class="tile-group" id="ecoDevHead" style="display:none">Devices on this account</h3>
+          <div class="tiles" id="ecoDevices"></div>
+          <div class="btn-row" id="ecoLogout" style="display:none">
+            <button type="button" class="btn btn-secondary" onclick="logoutEco()">Log out of Ecowitt</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+  <script>
+    sidebar("uploads");
+    var formDirty = false;
+    var acctDirty = false;
+    var awaitResult = false;
+    var pollTimer = null;
+
+    ["ecoEn", "ecoIv"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener("change", function () { formDirty = true; });
+    });
+    document.getElementById("ecoAcct").addEventListener("input", function () { acctDirty = true; });
+
+    function tile(label, value, tone, sub) {
+      var el = document.createElement("div");
+      el.className = "tile";
+      var lab = document.createElement("div");
+      lab.className = "tile-label";
+      lab.textContent = label;
+      var val = document.createElement("div");
+      val.className = "tile-value" + (tone ? " " + tone : "");
+      val.textContent = value || "—";
+      el.appendChild(lab);
+      el.appendChild(val);
+      if (sub) {
+        var s = document.createElement("div");
+        s.className = "tile-sub";
+        s.textContent = sub;
+        el.appendChild(s);
+      }
+      return el;
+    }
+
+    function applyEco(res) {
+      document.getElementById("finestraStatus").textContent = res.finestraStatus || "—";
+      var every = Number(res.finestraIntervalSec) || 0;
+      document.getElementById("finestraEvery").textContent = every
+        ? ("Finestra sends a picture every " + every + " seconds. Change that on the Network page.")
+        : "Finestra upload is off. The interval is on the Network page.";
+      document.getElementById("ecoStatus").textContent = res.uploadStatus || (res.enabled == 1 ? "On" : "Ecowitt upload is off");
+      document.getElementById("ecoSched").textContent = res.schedule || "";
+
+      if (!formDirty) {
+        document.getElementById("ecoEn").checked = res.enabled == 1;
+        document.getElementById("ecoIv").value = String(res.interval == null ? 1 : res.interval);
+      }
+
+      var checking = res.checked != 1;
+      var failed = !checking && !!res.checkError;
+      var loggedIn = !checking && res.loggedIn == 1;
+      var registered = loggedIn && !failed && res.registered == 1;
+      var busy = res.busy == 1;
+      document.getElementById("ecoLogin").style.display = (!checking && !busy && (!loggedIn || failed)) ? "" : "none";
+      document.getElementById("ecoRegister").style.display = (loggedIn && !registered && !failed && !busy) ? "" : "none";
+      document.getElementById("ecoLogout").style.display = (loggedIn && !busy) ? "" : "none";
+      document.getElementById("ecoSave").disabled = busy;
+      document.getElementById("ecoNow").disabled = busy || res.enabled != 1 || res.registered != 1;
+      document.getElementById("ecoPwdHint").textContent = res.pwdSet == 1
+        ? "Password is saved. Leave the field blank to log in again with the same account."
+        : "";
+
+      var acct = document.getElementById("ecoAcct");
+      if (!acctDirty && document.activeElement !== acct) acct.value = res.account || "";
+      var name = document.getElementById("ecoName");
+      if (!name.value && res.suggestName) name.value = res.suggestName;
+
+      if (awaitResult && !busy) {
+        awaitResult = false;
+        if (res.msg) {
+          var good = res.loggedIn == 1 || res.msg === "Camera registered" || res.msg === "Logged out" || res.msg.indexOf("already") >= 0;
+          toast(res.msg, good ? "ok" : "err");
+        } else if (res.checkError) toast(res.checkError, "err");
+      }
+
+      var lines = [];
+      if (checking) lines.push("Checking whether this camera is still registered…");
+      if (busy) lines.push("Working…");
+      if (res.msg) lines.push(res.msg);
+      if (!checking && res.checkError) lines.push(res.checkError);
+      if (res.listError) lines.push(res.listError);
+      document.getElementById("ecoMsg").textContent = lines.join("\n");
+
+      var loc = document.getElementById("ecoLoc");
+      if (res.hasLocation == 1) loc.textContent = "Position " + res.lat + ", " + res.lon + " (" + (res.tz || "") + ")";
+      else loc.textContent = "No GeoPulse position yet. Registration waits for a fix.";
+
+      var tiles = document.getElementById("ecoTiles");
+      tiles.innerHTML = "";
+      if (res.nickname || res.uid) tiles.appendChild(tile("Account", res.nickname || "Account", "", res.uid ? "id " + res.uid : ""));
+      if (res.mac) tiles.appendChild(tile("MAC", res.mac));
+      if (checking) tiles.appendChild(tile("This camera", "Checking…", "warn"));
+      else if (registered && res.deviceId) tiles.appendChild(tile("This camera", "Registered", "ok", "device " + res.deviceId));
+      else if (loggedIn && !failed) tiles.appendChild(tile("This camera", "Not registered", "warn"));
+
+      var devs = document.getElementById("ecoDevices");
+      devs.innerHTML = "";
+      var list = res.devices || [];
+      list.forEach(function (d) {
+        var sub = [d.mac, d.zone, d.online, d.mine == 1 ? "this camera" : ""].filter(Boolean).join(" · ");
+        devs.appendChild(tile(d.model || "Device", d.name || "Device", d.mine == 1 ? "ok" : "", sub));
+      });
+      document.getElementById("ecoDevHead").style.display = list.length ? "" : "none";
+      return busy || checking;
+    }
+
+    function refreshEco() {
+      ajax({
+        url: "/api/ecowitt",
+        success: function (res) {
+          var fast = applyEco(res);
+          schedule(fast ? 1000 : 4000);
+        },
+        error: function () { schedule(4000); }
+      });
+    }
+
+    function schedule(ms) {
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = setTimeout(refreshEco, ms);
+    }
+
+    function postEco(data, pending) {
+      ajax({
+        method: "POST",
+        url: "/api/ecowitt",
+        data: data,
+        success: function (res) {
+          if (data.op === "login" && res.ok) document.getElementById("ecoPwd").value = "";
+          if (data.op === "schedule") formDirty = false;
+          if (!res.ok) toast(res.message || "Request failed", "err");
+          else if (data.op === "schedule") toast(res.message || pending, "ok");
+          else awaitResult = true;
+          refreshEco();
+        },
+        error: function (_, res) {
+          toast((res && res.message) || "Request failed", "err");
+          refreshEco();
+        }
+      });
+    }
+
+    function saveEco() {
+      postEco({
+        op: "schedule",
+        enabled: document.getElementById("ecoEn").checked,
+        interval: Number(document.getElementById("ecoIv").value)
+      }, "Saving…");
+    }
+
+    function uploadEco() {
+      postEco({ op: "upload" }, "Upload queued");
+    }
+
+    function loginEco() {
+      postEco({
+        op: "login",
+        account: document.getElementById("ecoAcct").value.trim(),
+        password: document.getElementById("ecoPwd").value
+      }, "Logging in…");
+    }
+
+    function registerEco() {
+      var name = document.getElementById("ecoName").value.trim();
+      if (!name) {
+        toast("Enter a camera name", "err");
+        return;
+      }
+      postEco({ op: "register", name: name }, "Registering…");
+    }
+
+    function logoutEco() {
+      if (!confirm("Log out of Ecowitt on this camera? The camera stays on the account, and saved pictures can still arrive if you log in again.")) return;
+      postEco({ op: "logout" }, "Logging out…");
+    }
+
+    refreshEco();
+  </script>
+</body>
+</html>

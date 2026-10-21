@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="wrap">
+    <div class="content login-page" id="content">
+      <div class="login">
+        <div class="login-kicker">RFC-1166</div>
+        <h1 class="login-txt">Kerry Cam</h1>
+        <p class="login-sub">Sign in with the camera access-point password.</p>
+        <input type="password" class="input" id="pwd" maxlength="63" placeholder="AP password">
+        <label class="pwd-label"><input type="checkbox" autocomplete="off" onchange="togglePwd(this, 'pwd')"> Show password</label>
+        <button type="button" class="common-btn" onclick="login()">Login</button>
+        <p class="hint" id="version"></p>
+      </div>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+  <script>
+    function login() {
+      ajax({
+        method: "POST",
+        url: "/api/login",
+        data: { password: document.getElementById("pwd").value },
+        success: function (res) {
+          if (res.ok) location.href = "/index.html";
+          else toast(res.message || "Wrong password", "err");
+        },
+        error: function () { toast("Login failed", "err"); }
+      });
+    }
+    document.getElementById("pwd").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") login();
+    });
+    ajax({
+      url: "/api/version",
+      success: function (res) {
+        document.getElementById("version").textContent =
+          res.label || res.version || "";
+      }
+    });
+  </script>
+</body>
+</html>

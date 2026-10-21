@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>System</title>
+  <link rel="stylesheet" href="/app.css">
+  <style>
+    .progress-wrap { margin-top: 12px; display: none; }
+    .progress-bar { height: 10px; background: var(--line); border-radius: 8px; overflow: hidden; }
+    .progress-bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+    .progress-label { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="sidebar"></div>
+    <div class="content">
+      <header class="page-head">
+        <h1 class="page-til">System</h1>
+        <p class="page-sub">Clock, memory, watchdog, firmware upgrade, and reboot.</p>
+      </header>
+      <div id="toast" class="notice" style="display:none"></div>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Clock &amp; timezone</h2>
+        <div class="tiles">
+          <div class="tile wide">
+            <div class="tile-label">Local time</div>
+            <div class="tile-value" id="localTime">—</div>
+          </div>
+          <div class="tile wide">
+            <div class="tile-label">Timezone</div>
+            <div class="tile-value" id="tzName">—</div>
+          </div>
+        </div>
+        <p class="hint hint-spaced">NTP syncs when ship Wi-Fi is up. Timezone is picked from GeoPulse latitude/longitude (DST included).</p>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Memory</h2>
+        <div class="tiles">
+          <div class="tile">
+            <div class="tile-label">Free heap</div>
+            <div class="tile-value" id="memHeapFree">—</div>
+            <div class="tile-sub" id="memHeapSub"></div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Largest heap block</div>
+            <div class="tile-value" id="memHeapLargest">—</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Min free heap</div>
+            <div class="tile-value" id="memHeapMin">—</div>
+            <div class="tile-sub">Low-water since boot</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Uptime</div>
+            <div class="tile-value" id="memUptime">—</div>
+          </div>
+        </div>
+        <h3 class="tile-group">Internal RAM</h3>
+        <div class="tiles">
+          <div class="tile">
+            <div class="tile-label">Free internal</div>
+            <div class="tile-value" id="memInternalFree">—</div>
+            <div class="tile-sub" id="memInternalSub"></div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Largest internal block</div>
+            <div class="tile-value" id="memInternalLargest">—</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Min free internal</div>
+            <div class="tile-value" id="memInternalMin">—</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Free DMA-capable</div>
+            <div class="tile-value" id="memDmaFree">—</div>
+            <div class="tile-sub" id="memDmaSub"></div>
+          </div>
+        </div>
+        <h3 class="tile-group">PSRAM</h3>
+        <div class="tiles">
+          <div class="tile">
+            <div class="tile-label">PSRAM</div>
+            <div class="tile-value" id="memPsramFree">—</div>
+            <div class="tile-sub" id="memPsramSub"></div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Largest PSRAM block</div>
+            <div class="tile-value" id="memPsramLargest">—</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Min free PSRAM</div>
+            <div class="tile-value" id="memPsramMin">—</div>
+          </div>
+        </div>
+        <h3 class="tile-group">Flash</h3>
+        <div class="tiles">
+          <div class="tile">
+            <div class="tile-label">Flash chip</div>
+            <div class="tile-value" id="memFlashSize">—</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Firmware size</div>
+            <div class="tile-value" id="memSketchSize">—</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">OTA free space</div>
+            <div class="tile-value" id="memSketchFree">—</div>
+          </div>
+        </div>
+        <p class="hint hint-spaced">Refreshes every 3 seconds while this page is open.</p>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Watchdog</h2>
+        <div class="switch-row">
+          <label class="switch">
+            <input type="checkbox" id="wd_en">
+            <span class="switch-ui"></span>
+            Reboot on repeated camera or upload failures
+          </label>
+        </div>
+        <div class="fields" style="margin-top:12px">
+          <div>
+            <label class="field-label" for="wd_cam_n">Reboot after camera failures</label>
+            <input type="number" id="wd_cam_n" min="1" max="20" value="3">
+          </div>
+          <div>
+            <label class="field-label" for="wd_up_n">Reboot after upload failures</label>
+            <input type="number" id="wd_up_n" min="1" max="20" value="3">
+          </div>
+          <div>
+            <label class="field-label" for="wd_cap_n">Reboot cap (count)</label>
+            <input type="number" id="wd_cap_n" min="1" max="20" value="3">
+          </div>
+          <div>
+            <label class="field-label" for="wd_cap_m">Cap window (minutes)</label>
+            <input type="number" id="wd_cap_m" min="1" max="1440" value="60">
+          </div>
+        </div>
+        <p class="hint hint-spaced" id="wdStatus"></p>
+        <div class="btn-row">
+          <button type="button" class="common-btn" onclick="saveWatchdog()">Save watchdog</button>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Firmware</h2>
+        <div class="tiles">
+          <div class="tile wide">
+            <div class="tile-label">Current version</div>
+            <div class="tile-value" id="fwVersion">—</div>
+          </div>
+        </div>
+        <div class="fields">
+          <div>
+            <label class="field-label" for="fw_file">Firmware file (.bin)</label>
+            <input type="file" id="fw_file" accept=".bin,application/octet-stream">
+          </div>
+          <div>
+            <label class="field-label" for="updateKey">Update key</label>
+            <input type="password" id="updateKey" placeholder="Same as AP password">
+          </div>
+        </div>
+        <p class="hint hint-spaced">Close the live stream before upgrading. The camera reboots when the upload finishes.</p>
+        <div class="btn-row">
+          <button type="button" class="common-btn" id="flashBtn" onclick="flashFirmware()">Flash firmware</button>
+        </div>
+        <div class="progress-wrap" id="progressWrap">
+          <div class="progress-bar"><span id="progressBar"></span></div>
+          <div class="progress-label" id="progressLabel">Uploading…</div>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Power</h2>
+        <div class="btn-row">
+          <button type="button" class="common-btn" onclick="rebootDevice()">Reboot now</button>
+        </div>
+      </section>
+    </div>
+  </div>
+  <script src="/app.js"></script>
+  <script>
+    sidebar("system");
+
+    var memPollTimer = null;
+
+    function fmtBytes(n) {
+      if (n === null || n === undefined || n < 0) return "—";
+      if (n < 1024) return n + " B";
+      if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+      return (n / 1048576).toFixed(2) + " MB";
+    }
+
+    function fmtUptime(sec) {
+      if (sec === null || sec === undefined || sec < 0) return "—";
+      sec = Math.floor(sec);
+      var d = Math.floor(sec / 86400);
+      sec %= 86400;
+      var h = Math.floor(sec / 3600);
+      sec %= 3600;
+      var m = Math.floor(sec / 60);
+      var s = sec % 60;
+      if (d > 0) return d + "d " + h + "h " + m + "m";
+      if (h > 0) return h + "h " + m + "m " + s + "s";
+      if (m > 0) return m + "m " + s + "s";
+      return s + "s";
+    }
+
+    function setText(id, text) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = text;
+    }
+
+    function paintMemory(mem) {
+      mem = mem || {};
+      setText("memHeapFree", fmtBytes(mem.heap_free));
+      setText("memHeapSub", mem.heap_total ? "of " + fmtBytes(mem.heap_total) + " total" : "");
+      setText("memHeapLargest", fmtBytes(mem.heap_largest));
+      setText("memHeapMin", fmtBytes(mem.heap_min));
+      setText("memUptime", fmtUptime(mem.uptime_s));
+
+      setText("memInternalFree", fmtBytes(mem.internal_free));
+      setText("memInternalSub", mem.internal_total ? "of " + fmtBytes(mem.internal_total) : "");
+      setText("memInternalLargest", fmtBytes(mem.internal_largest));
+      setText("memInternalMin", fmtBytes(mem.internal_min));
+
+      setText("memDmaFree", fmtBytes(mem.dma_free));
+      setText("memDmaSub", mem.dma_largest ? "largest " + fmtBytes(mem.dma_largest) : "");
+
+      if (mem.has_psram) {
+        setText("memPsramFree", fmtBytes(mem.psram_free));
+        setText("memPsramSub", mem.psram_total ? "of " + fmtBytes(mem.psram_total) : "");
+        setText("memPsramLargest", fmtBytes(mem.psram_largest));
+        setText("memPsramMin", fmtBytes(mem.psram_min));
+      } else {
+        setText("memPsramFree", "Not present");
+        setText("memPsramSub", "");
+        setText("memPsramLargest", "—");
+        setText("memPsramMin", "—");
+      }
+
+      setText("memFlashSize", fmtBytes(mem.flash_size));
+      setText("memSketchSize", fmtBytes(mem.sketch_size));
+      setText("memSketchFree", fmtBytes(mem.sketch_free));
+    }
+
+    function loadSystem() {
+      ajax({
+        url: "/api/system",
+        success: function (res) {
+          var fw = res.label || res.version || "Kerry Cam";
+          if (res.buildEnv) fw += " · " + res.buildEnv;
+          if (res.git && res.git !== "nogit") fw += " · " + res.git;
+          document.getElementById("fwVersion").textContent = fw;
+          document.getElementById("wd_en").checked = !!res.wd_en;
+          document.getElementById("wd_cam_n").value = res.wd_cam_n || 3;
+          document.getElementById("wd_up_n").value = res.wd_up_n || 3;
+          document.getElementById("wd_cap_n").value = res.wd_cap_n || 3;
+          document.getElementById("wd_cap_m").value = res.wd_cap_m || 60;
+          var wd = "Camera fails: " + (res.wd_cam_fail || 0) + " · Upload fails: " + (res.wd_up_fail || 0);
+          if (res.lastWdCause) wd += " · Last watchdog: " + res.lastWdCause;
+          document.getElementById("wdStatus").textContent = wd;
+          var t = res.time || {};
+          document.getElementById("localTime").textContent = t.localTime || (t.clockSynced ? "Synced" : "Waiting for NTP");
+          var tz = t.tzIana || "";
+          if (tz && t.dst) tz += " (DST)";
+          document.getElementById("tzName").textContent = tz || "—";
+          paintMemory(res.mem);
+        }
+      });
+    }
+
+    function startMemoryPoll() {
+      if (memPollTimer) clearInterval(memPollTimer);
+      memPollTimer = setInterval(loadSystem, 3000);
+    }
+
+    function saveWatchdog() {
+      ajax({
+        method: "POST",
+        url: "/api/system",
+        data: {
+          wd_en: document.getElementById("wd_en").checked,
+          wd_cam_n: parseInt(document.getElementById("wd_cam_n").value, 10),
+          wd_up_n: parseInt(document.getElementById("wd_up_n").value, 10),
+          wd_cap_n: parseInt(document.getElementById("wd_cap_n").value, 10),
+          wd_cap_m: parseInt(document.getElementById("wd_cap_m").value, 10)
+        },
+        success: function (res) {
+          toast(res.message || "Saved", res.ok ? "ok" : "err");
+          if (res.ok) loadSystem();
+        }
+      });
+    }
+
+    function rebootDevice() {
+      if (!confirm("Reboot the camera now?")) return;
+      ajax({
+        method: "POST",
+        url: "/api/system",
+        data: { reboot: true },
+        success: function () {
+          toast("Rebooting…", "ok");
+          setTimeout(function () { location.reload(); }, 8000);
+        }
+      });
+    }
+
+    function flashFirmware() {
+      var fileInput = document.getElementById("fw_file");
+      var key = document.getElementById("updateKey").value;
+      if (!fileInput.files || !fileInput.files[0]) {
+        toast("Choose a firmware .bin file", "err");
+        return;
+      }
+      if (!key) {
+        toast("Enter the update key (AP password)", "err");
+        return;
+      }
+      var file = fileInput.files[0];
+      var btn = document.getElementById("flashBtn");
+      var wrap = document.getElementById("progressWrap");
+      var bar = document.getElementById("progressBar");
+      var label = document.getElementById("progressLabel");
+      btn.disabled = true;
+      wrap.style.display = "block";
+      bar.style.width = "0%";
+      label.textContent = "Uploading 0%…";
+
+      var xhr = new XMLHttpRequest();
+      xhr.open("POST", "/update", true);
+      xhr.setRequestHeader("Content-Type", "application/octet-stream");
+      xhr.setRequestHeader("X-Update-Key", key);
+      xhr.upload.onprogress = function (ev) {
+        if (!ev.lengthComputable) return;
+        var pct = Math.round(ev.loaded * 100 / ev.total);
+        bar.style.width = pct + "%";
+        label.textContent = "Uploading " + pct + "%…";
+      };
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState !== 4) return;
+        btn.disabled = false;
+        if (xhr.status >= 200 && xhr.status < 300) {
+          bar.style.width = "100%";
+          label.textContent = "Done — rebooting…";
+          toast("Firmware uploaded", "ok");
+          setTimeout(function () { location.reload(); }, 10000);
+        } else {
+          toast(xhr.responseText || ("Upload failed (" + xhr.status + ")"), "err");
+          wrap.style.display = "none";
+        }
+      };
+      xhr.send(file);
+    }
+
+    requireAuth(function () {
+      loadSystem();
+      startMemoryPoll();
+    });
+  </script>
+</body>
+</html>
