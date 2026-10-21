@@ -12,6 +12,7 @@
 #include <mbedtls/platform.h>
 #include <esp_private/brownout.h>
 #include <esp_task_wdt.h>
+#include <esp_timer.h>
 #include <esp_mac.h>
 #include <esp_wifi.h>
 
@@ -127,6 +128,8 @@ bool termsAccepted = false;
 bool usePortal = false;
 
 static bool cameraReady = false;
+static size_t g_activeFbCount = 0;
+static camera_grab_mode_t g_activeGrabMode = CAMERA_GRAB_WHEN_EMPTY;
 bool isOV5640 = false;
 bool isOV3660 = false;
 #if defined(ARDUINO_XIAO_ESP32S3)
@@ -500,6 +503,31 @@ static camera_fb_t *camFbGetHeldLock(bool noteHealth) {
   return fb;
 }
 
+static bool cameraHoldsStaleFrame() {
+  return g_activeFbCount == 1 && g_activeGrabMode == CAMERA_GRAB_WHEN_EMPTY;
+}
+
+static void logDeliveredFrameAge(const char *why, const camera_fb_t *fb) {
+  if (!fb) return;
+  int64_t nowUs = esp_timer_get_time();
+  int64_t fbUs = (int64_t)fb->timestamp.tv_sec * 1000000LL + (int64_t)fb->timestamp.tv_usec;
+  uint32_t ageMs = 0;
+  if (nowUs > fbUs) ageMs = (uint32_t)((nowUs - fbUs) / 1000LL);
+  logd("%s frame age %ums", why ? why : "capture", (unsigned)ageMs);
+}
+
+static void dropHeldStaleFrame() {
+  if (!cameraHoldsStaleFrame()) return;
+  camera_fb_t *stale = camFbGetHeldLock(false);
+  if (stale) esp_camera_fb_return(stale);
+}
+
+static void noteActiveGrab(const camera_config_t *config) {
+  if (!config) return;
+  g_activeFbCount = config->fb_count;
+  g_activeGrabMode = config->grab_mode;
+}
+
 static void discardCameraFrames(int count) { kerryCamDiscardFrames(count); }
 
 static bool waitForOv5640Focus(uint32_t timeoutMs) {
@@ -645,6 +673,7 @@ static bool startCameraWithPwdn(int pwdnEnd, bool forceStandard) {
     const char *defErr = kerryOv2640CaptureDefaults(sensor);
     if (defErr) logw("%s", defErr);
   }
+  noteActiveGrab(&config);
   applyCameraControls();
   return true;
 }
@@ -1599,7 +1628,9 @@ bool kerryCaptureUploadJpeg(const char *why, uint8_t **out, size_t *outLen, char
     return false;
   }
 
+  dropHeldStaleFrame();
   camera_fb_t *fb = camFbGetHeldLock(true);
+  if (fb) logDeliveredFrameAge(why, fb);
   if (!fb) {
     unlockCam();
     serviceExposureRevertIfNeeded();
@@ -1841,6 +1872,7 @@ static esp_err_t captureHandler(httpd_req_t *req) {
     camera_fb_t *warm = camFbGetHeldLock(false);
     if (warm) esp_camera_fb_return(warm);
   }
+  dropHeldStaleFrame();
   camera_fb_t *fb = nullptr;
   for (int attempt = 0; attempt < 4; attempt++) {
     fb = camFbGetHeldLock(true);
@@ -1858,6 +1890,7 @@ static esp_err_t captureHandler(httpd_req_t *req) {
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Capture failed");
     return ESP_FAIL;
   }
+  logDeliveredFrameAge("capture", fb);
   httpd_resp_set_type(req, "image/jpeg");
   httpd_resp_set_hdr(req, "Cache-Control", "no-store");
   httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
