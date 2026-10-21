@@ -30,10 +30,10 @@ bool kerryCamGrabActive();
 int kerryCamDiscardFrames(int count, uint32_t *tsMs = nullptr, int tsCap = 0);
 bool kerryCameraReady();
 const char *kerryCameraSensorName();
+#define KERRY_SELECTABLE_SIZES_MAX 9
 void kerryImageGet(JsonDocument &doc);
+int kerryImageSelectableSizes(framesize_t *out, int cap);
 const char *kerryImageResolveFramesize(int framesize, framesize_t *requested, framesize_t *effective);
-framesize_t kerryFrameSizeEffective(framesize_t size);
-bool kerryImageFramesizeListed(framesize_t size);
 const char *kerryImageSet(int framesize, int brightness, int contrast, int saturation, int flipHSet, int flipVSet);
 const char *kerryCamReapplyExposure();
 

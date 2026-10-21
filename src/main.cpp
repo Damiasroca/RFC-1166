@@ -313,23 +313,35 @@ static bool frameSizeAllowed(framesize_t size) {
   return false;
 }
 
+static bool psramLimitExceeded(framesize_t size) { return !psramFound() && size > FRAMESIZE_VGA; }
+
+static const framesize_t kSelectableSizes[] = {FRAMESIZE_QVGA, FRAMESIZE_VGA, FRAMESIZE_SVGA, FRAMESIZE_XGA,
+                                               FRAMESIZE_HD,   FRAMESIZE_FHD,  FRAMESIZE_SXGA, FRAMESIZE_UXGA,
+                                               FRAMESIZE_QXGA};
+static_assert(sizeof(kSelectableSizes) / sizeof(kSelectableSizes[0]) == KERRY_SELECTABLE_SIZES_MAX,
+              "kSelectableSizes length must match KERRY_SELECTABLE_SIZES_MAX");
+
 static bool frameSizeFallback(framesize_t size) {
   return size == FRAMESIZE_SXGA || size == FRAMESIZE_UXGA || size == FRAMESIZE_FHD ||
          size == FRAMESIZE_QXGA;
 }
 
 static framesize_t applyPsramFrameLimit(framesize_t size) {
-  if (!psramFound() && size > FRAMESIZE_VGA) return FRAMESIZE_VGA;
-  return size;
+  return psramLimitExceeded(size) ? FRAMESIZE_VGA : size;
 }
 
 static framesize_t effectiveFrameSize() { return applyPsramFrameLimit(camFrameSize); }
 
-framesize_t kerryFrameSizeEffective(framesize_t size) { return applyPsramFrameLimit(size); }
-
-bool kerryImageFramesizeListed(framesize_t size) {
-  if (!psramFound() && size > FRAMESIZE_VGA) return false;
-  return frameSizeAllowed(size);
+int kerryImageSelectableSizes(framesize_t *out, int cap) {
+  int n = 0;
+  for (framesize_t size : kSelectableSizes) {
+    if (psramLimitExceeded(size) || !frameSizeAllowed(size)) continue;
+    if (n < cap) {
+      if (out) out[n] = size;
+      n++;
+    }
+  }
+  return n;
 }
 
 static void ov5640SetCaptureFramesize(sensor_t *sensor, framesize_t fs, bool refocusAfterResize);
@@ -1041,14 +1053,12 @@ void kerryImageGet(JsonDocument &doc) {
   doc["cameraReady"] = cameraReady;
   doc["sensor"] = cameraReady ? cameraSensorName() : "unknown";
   JsonArray sizes = doc["sizes"].to<JsonArray>();
-  const framesize_t allowed[] = {FRAMESIZE_QVGA, FRAMESIZE_VGA, FRAMESIZE_SVGA, FRAMESIZE_XGA, FRAMESIZE_HD,
-                                 FRAMESIZE_FHD,  FRAMESIZE_SXGA, FRAMESIZE_UXGA, FRAMESIZE_QXGA};
-  for (framesize_t size : allowed) {
-    if (!psramFound() && size > FRAMESIZE_VGA) continue;
-    if (!frameSizeAllowed(size)) continue;
+  framesize_t listed[KERRY_SELECTABLE_SIZES_MAX];
+  int n = kerryImageSelectableSizes(listed, KERRY_SELECTABLE_SIZES_MAX);
+  for (int i = 0; i < n; i++) {
     JsonObject row = sizes.add<JsonObject>();
-    row["value"] = (int)size;
-    row["label"] = frameSizeLabel(size);
+    row["value"] = (int)listed[i];
+    row["label"] = frameSizeLabel(listed[i]);
   }
   kerryCamExposureFillJson(doc);
 }
@@ -1057,7 +1067,7 @@ const char *kerryImageResolveFramesize(int framesize, framesize_t *requested, fr
   framesize_t newSize = (framesize < 0) ? camFrameSize : (framesize_t)framesize;
   if (framesize >= 0) {
     if (!frameSizeAllowed(newSize)) return "Unsupported resolution";
-    if (!psramFound() && newSize > FRAMESIZE_VGA) return "No PSRAM for that resolution";
+    if (psramLimitExceeded(newSize)) return "No PSRAM for that resolution";
   }
   if (requested) *requested = newSize;
   if (effective) *effective = applyPsramFrameLimit(newSize);
