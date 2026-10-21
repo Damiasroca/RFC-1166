@@ -462,7 +462,7 @@ static esp_err_t apiImagePost(httpd_req_t *req) {
   }
 
   framesize_t targetFs = FRAMESIZE_INVALID;
-  const char *fsErr = kerryImageResolveFramesize(in["framesize"].as<int>(), &targetFs);
+  const char *fsErr = kerryImageResolveFramesize(in["framesize"].as<int>(), nullptr, &targetFs);
   if (fsErr) {
     out["ok"] = false;
     out["message"] = fsErr;

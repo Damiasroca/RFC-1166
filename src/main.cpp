@@ -1035,13 +1035,14 @@ void kerryImageGet(JsonDocument &doc) {
   kerryCamExposureFillJson(doc);
 }
 
-const char *kerryImageResolveFramesize(int framesize, framesize_t *out) {
+const char *kerryImageResolveFramesize(int framesize, framesize_t *requested, framesize_t *effective) {
   framesize_t newSize = (framesize < 0) ? camFrameSize : (framesize_t)framesize;
   if (framesize >= 0) {
     if (!frameSizeAllowed(newSize)) return "Unsupported resolution";
     if (!psramFound() && newSize > FRAMESIZE_VGA) return "No PSRAM for that resolution";
   }
-  *out = applyPsramFrameLimit(newSize);
+  if (requested) *requested = newSize;
+  if (effective) *effective = applyPsramFrameLimit(newSize);
   return nullptr;
 }
 
@@ -1049,12 +1050,9 @@ const char *kerryImageSet(int framesize, int brightness, int contrast, int satur
   if (streamActive) return "Close the live stream first";
   if (camGrabActive) return "Capture in progress, try again";
 
-  framesize_t resolved = FRAMESIZE_INVALID;
-  const char *fsErr = kerryImageResolveFramesize(framesize, &resolved);
+  framesize_t newSize = FRAMESIZE_INVALID;
+  const char *fsErr = kerryImageResolveFramesize(framesize, &newSize, nullptr);
   if (fsErr) return fsErr;
-  (void)resolved;
-
-  framesize_t newSize = (framesize < 0) ? camFrameSize : (framesize_t)framesize;
   bool resolutionChanged = newSize != camFrameSize;
   if (framesize >= 0) camFrameSize = newSize;
   if (brightness >= -2) camBrightness = clampCamLevel(brightness);

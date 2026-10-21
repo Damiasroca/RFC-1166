@@ -31,7 +31,7 @@ int kerryCamDiscardFrames(int count, uint32_t *tsMs = nullptr, int tsCap = 0);
 bool kerryCameraReady();
 const char *kerryCameraSensorName();
 void kerryImageGet(JsonDocument &doc);
-const char *kerryImageResolveFramesize(int framesize, framesize_t *out);
+const char *kerryImageResolveFramesize(int framesize, framesize_t *requested, framesize_t *effective);
 const char *kerryImageSet(int framesize, int brightness, int contrast, int saturation, int flipHSet, int flipVSet);
 
 bool kerryUploadNow(char *message, size_t messageLen);
