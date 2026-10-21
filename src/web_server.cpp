@@ -461,8 +461,16 @@ static esp_err_t apiImagePost(httpd_req_t *req) {
     return sendJson(req, out);
   }
 
+  framesize_t targetFs = FRAMESIZE_INVALID;
+  const char *fsErr = kerryImageResolveFramesize(in["framesize"].as<int>(), &targetFs);
+  if (fsErr) {
+    out["ok"] = false;
+    out["message"] = fsErr;
+    return sendJson(req, out);
+  }
+
   if (!in["exposure"].isNull()) {
-    const char *expErr = kerryCamExposureUpdate(in["exposure"]);
+    const char *expErr = kerryCamExposureStage(in["exposure"], targetFs);
     if (expErr) {
       out["ok"] = false;
       out["message"] = expErr;
@@ -471,15 +479,20 @@ static esp_err_t apiImagePost(httpd_req_t *req) {
     }
   }
 
+  kerryCamExposureActivateStaged();
+
   int flipHSet = in["flipH"].isNull() ? -1 : (in["flipH"].as<bool>() ? 1 : 0);
   int flipVSet = in["flipV"].isNull() ? -1 : (in["flipV"].as<bool>() ? 1 : 0);
   const char *err = kerryImageSet(in["framesize"].as<int>(), in["brightness"].as<int>(), in["contrast"].as<int>(),
                                    in["saturation"].as<int>(), flipHSet, flipVSet);
   if (err) {
+    kerryCamExposureRollbackStaged();
     out["ok"] = false;
     out["message"] = err;
     return sendJson(req, out);
   }
+
+  kerryCamExposurePersistStaged();
 
   out["ok"] = true;
   out["message"] = "Image settings saved";

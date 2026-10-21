@@ -10,6 +10,9 @@
 #include <esp_camera.h>
 
 static kerry_cam_exp_cfg_t g_cfg = kerryCamExposureDefaultCfg();
+static kerry_cam_exp_cfg_t g_staged = kerryCamExposureDefaultCfg();
+static kerry_cam_exp_cfg_t g_prevCfg = kerryCamExposureDefaultCfg();
+static bool g_hasStaged = false;
 static kerry_cam_exp_cfg_t g_lastGood = kerryCamExposureDefaultCfg();
 static bool g_hasLastGood = false;
 static bool g_unverified = false;
@@ -139,7 +142,7 @@ void kerryCamExposureFillJson(JsonDocument &doc) {
   }
 }
 
-const char *kerryCamExposureUpdate(JsonObjectConst exp) {
+const char *kerryCamExposureStage(JsonObjectConst exp, framesize_t targetFs) {
   if (exp.isNull()) return nullptr;
 
   kerry_cam_exp_cfg_t staged = g_cfg;
@@ -150,7 +153,6 @@ const char *kerryCamExposureUpdate(JsonObjectConst exp) {
 
   sensor_t *s = esp_camera_sensor_get();
   uint16_t pid = s ? s->id.PID : OV2640_PID;
-  framesize_t fs = s ? s->status.framesize : FRAMESIZE_SVGA;
 
   if (exp["aecValue"].is<int>()) {
     int v = exp["aecValue"].as<int>();
@@ -201,11 +203,29 @@ const char *kerryCamExposureUpdate(JsonObjectConst exp) {
     }
   }
 
-  if (!err) err = kerryCamExposureCfgValidate(&staged, pid, fs);
+  if (!err) err = kerryCamExposureCfgValidate(&staged, pid, targetFs);
   if (err) return err;
-  g_cfg = staged;
-  kerryCamExposureSave();
+  g_staged = staged;
+  g_hasStaged = true;
   return nullptr;
+}
+
+void kerryCamExposureActivateStaged() {
+  if (!g_hasStaged) return;
+  g_prevCfg = g_cfg;
+  g_cfg = g_staged;
+}
+
+void kerryCamExposurePersistStaged() {
+  if (!g_hasStaged) return;
+  kerryCamExposureSave();
+  g_hasStaged = false;
+}
+
+void kerryCamExposureRollbackStaged() {
+  if (!g_hasStaged) return;
+  g_cfg = g_prevCfg;
+  g_hasStaged = false;
 }
 
 const char *kerryCamExposureApply(bool discardFramesAfter) {
