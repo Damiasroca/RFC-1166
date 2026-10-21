@@ -325,6 +325,17 @@ static framesize_t applyPsramFrameLimit(framesize_t size) {
 
 static framesize_t effectiveFrameSize() { return applyPsramFrameLimit(camFrameSize); }
 
+const char *kerryCamReapplyExposure() {
+  if (!lockCam(3000)) return "Camera busy";
+  if (!cameraReady) {
+    unlockCam();
+    return "Camera not ready";
+  }
+  const char *err = kerryCamExposureApply(true);
+  unlockCam();
+  return err;
+}
+
 static void ov5640SetCaptureFramesize(sensor_t *sensor, framesize_t fs, bool refocusAfterResize);
 static void discardCameraFrames(int count);
 
@@ -1078,6 +1089,8 @@ const char *kerryImageSet(int framesize, int brightness, int contrast, int satur
   unlockCam();
 
   if (!ok) return "Camera rejected settings";
+  const char *applyErr = kerryCamExposureLastApplyError();
+  if (applyErr) return applyErr;
   logf("image resolution=%d bright=%d contrast=%d saturation=%d flipH=%d flipV=%d", (int)camFrameSize,
        camBrightness, camContrast, camSaturation, flipH ? 1 : 0, flipV ? 1 : 0);
   return nullptr;

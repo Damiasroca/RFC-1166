@@ -115,6 +115,7 @@ void kerryCamExposureActivateStaged() {
   }
   g_prevCfg = g_cfg;
   g_cfg = g_staged;
+  g_appliedSinceActivate = false;
   xSemaphoreGive(g_storeMu);
 }
 
@@ -140,15 +141,19 @@ bool kerryCamExposurePersistStaged() {
   return false;
 }
 
-void kerryCamExposureRollbackStaged() {
+bool kerryCamExposureRollbackStaged() {
+  bool reapply = false;
   xSemaphoreTake(g_storeMu, portMAX_DELAY);
   if (!g_hasStaged) {
     xSemaphoreGive(g_storeMu);
-    return;
+    return false;
   }
+  reapply = g_appliedSinceActivate;
   g_cfg = g_prevCfg;
   g_hasStaged = false;
+  g_appliedSinceActivate = false;
   xSemaphoreGive(g_storeMu);
+  return reapply;
 }
 
 void kerryCamExposureNoteCaptureOk() {
@@ -186,6 +191,12 @@ bool kerryCamExposureRevertPending() {
   bool pending = g_revertPending;
   xSemaphoreGive(g_storeMu);
   return pending;
+}
+
+void kerryCamExpStoreNoteApplied() {
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
+  if (g_hasStaged) g_appliedSinceActivate = true;
+  xSemaphoreGive(g_storeMu);
 }
 
 void kerryCamExpStoreMarkApplied() {

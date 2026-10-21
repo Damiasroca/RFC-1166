@@ -9,6 +9,8 @@
 #include <Arduino.h>
 #include <esp_camera.h>
 
+static const char *g_lastApplyErr = nullptr;
+
 static void kerryCamExposureSettle(const kerry_cam_exp_cfg_t *cfg);
 
 static gainceiling_t gainCeilingEnum(uint8_t idx) {
@@ -156,14 +158,20 @@ const char *kerryCamExposureApply(bool discardFramesAfter) {
   kerryCamExpStoreGet(&cfg);
 
   sensor_t *s = esp_camera_sensor_get();
-  if (!s || !kerryCameraReady()) return "Camera not ready";
+  if (!s || !kerryCameraReady()) {
+    g_lastApplyErr = "Camera not ready";
+    return g_lastApplyErr;
+  }
 
   uint16_t pid = s->id.PID;
+
+  kerryCamExpStoreNoteApplied();
 
   if (kerryOv2640Is(pid)) {
     const char *timingErr = kerryOv2640ApplyTiming(s, cfg.clkrc, cfg.dummyLines);
     if (timingErr) {
       KERRY_LOGW("exposure", "%s", timingErr);
+      g_lastApplyErr = timingErr;
       return timingErr;
     }
   }
@@ -180,7 +188,8 @@ const char *kerryCamExposureApply(bool discardFramesAfter) {
     if (kerryOv2640Is(pid)) {
       if (kerryOv2640SetAecValue(s, v) != 0) {
         KERRY_LOGW("exposure", "OV2640 manual exposure rejected");
-        return "Sensor rejected manual exposure";
+        g_lastApplyErr = "Sensor rejected manual exposure";
+        return g_lastApplyErr;
       }
       s->status.aec_value = (uint16_t)v;
     } else if (s->set_aec_value) {
@@ -207,9 +216,12 @@ const char *kerryCamExposureApply(bool discardFramesAfter) {
 
   KERRY_LOGI("exposure", "applied aec=%d val=%u aec2=%d ae=%d agc=%d gain=%u ceil=0x%02X clkrc=0x%02X dummy=%u",
              cfg.aecOn ? 1 : 0, (unsigned)cfg.aecValue, cfg.aec2On ? 1 : 0, (int)cfg.aeLevel, cfg.agcOn ? 1 : 0,
-             (unsigned)cfg.agcGain, (unsigned)cfg.gainCeiling, (unsigned)cfg.clkrc, (unsigned)cfg.dummyLines);
+             (unsigned)cfg.agcGain,              (unsigned)cfg.gainCeiling, (unsigned)cfg.clkrc, (unsigned)cfg.dummyLines);
+  g_lastApplyErr = nullptr;
   return nullptr;
 }
+
+const char *kerryCamExposureLastApplyError() { return g_lastApplyErr; }
 
 uint32_t kerryCamExposureEstimatedMs() {
   kerry_cam_exp_cfg_t cfg;

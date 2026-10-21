@@ -486,7 +486,11 @@ static esp_err_t apiImagePost(httpd_req_t *req) {
   const char *err = kerryImageSet(in["framesize"].as<int>(), in["brightness"].as<int>(), in["contrast"].as<int>(),
                                    in["saturation"].as<int>(), flipHSet, flipVSet);
   if (err) {
-    kerryCamExposureRollbackStaged();
+    bool reapply = kerryCamExposureRollbackStaged();
+    if (reapply) {
+      const char *reErr = kerryCamReapplyExposure();
+      if (reErr) KERRY_LOGW("exposure", "reapply after rollback failed: %s", reErr);
+    }
     out["ok"] = false;
     out["message"] = err;
     return sendJson(req, out);

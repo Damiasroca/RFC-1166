@@ -9,10 +9,11 @@ void kerryCamExposureLoad();
 void kerryCamExposureSave();
 void kerryCamExposureActivateStaged();
 bool kerryCamExposurePersistStaged();
-void kerryCamExposureRollbackStaged();
+bool kerryCamExposureRollbackStaged();
 void kerryCamExposureNoteCaptureOk();
 void kerryCamExposureNoteCaptureFail();
 bool kerryCamExposureRevertPending();
 
+void kerryCamExpStoreNoteApplied();
 void kerryCamExpStoreMarkApplied();
 void kerryCamExpStoreClearRevertPending();

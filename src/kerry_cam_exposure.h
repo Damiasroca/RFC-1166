@@ -11,6 +11,7 @@ void kerryCamExposureFillJson(JsonDocument &doc);
 const char *kerryCamExposureStage(JsonObjectConst exp, framesize_t targetFs);
 // Apply NVS settings to the sensor. Caller must hold camLock. cameraReady required.
 const char *kerryCamExposureApply(bool discardFrames);
+const char *kerryCamExposureLastApplyError();
 
 uint32_t kerryCamExposureEstimatedMs();
 uint32_t kerryCamExposureFrameMs();
