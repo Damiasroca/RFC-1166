@@ -5,6 +5,8 @@
 
 #include <Arduino.h>
 #include <Preferences.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 static kerry_cam_exp_cfg_t g_cfg = kerryCamExposureDefaultCfg();
 static kerry_cam_exp_cfg_t g_staged = kerryCamExposureDefaultCfg();
@@ -15,28 +17,55 @@ static bool g_hasLastGood = false;
 static bool g_unverified = false;
 static uint8_t g_captureFailStreak = 0;
 static volatile bool g_revertPending = false;
+static bool g_appliedSinceActivate = false;
+static SemaphoreHandle_t g_storeMu = nullptr;
 
-void kerryCamExpStoreGet(kerry_cam_exp_cfg_t *out) { *out = g_cfg; }
+static void writeNvs(const kerry_cam_exp_cfg_t *cfg) {
+  Preferences prefs;
+  prefs.begin("kerry", false);
+  prefs.putBool("exp_aec", cfg->aecOn);
+  prefs.putUShort("exp_aecv", cfg->aecValue);
+  prefs.putBool("exp_aec2", cfg->aec2On);
+  prefs.putChar("exp_ael", cfg->aeLevel);
+  prefs.putBool("exp_agc", cfg->agcOn);
+  prefs.putUChar("exp_agcg", cfg->agcGain);
+  prefs.putUChar("exp_gceil", cfg->gainCeiling);
+  prefs.putUChar("exp_clkrc", cfg->clkrc);
+  prefs.putUShort("exp_dummy", cfg->dummyLines);
+  prefs.end();
+}
+
+void kerryCamExpStoreGet(kerry_cam_exp_cfg_t *out) {
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
+  *out = g_cfg;
+  xSemaphoreGive(g_storeMu);
+}
 
 void kerryCamExpStoreSetStaged(const kerry_cam_exp_cfg_t *cfg) {
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
   g_staged = *cfg;
   g_hasStaged = true;
+  xSemaphoreGive(g_storeMu);
 }
 
 void kerryCamExposureLoad() {
+  if (!g_storeMu) g_storeMu = xSemaphoreCreateMutex();
+
+  kerry_cam_exp_cfg_t loaded = kerryCamExposureDefaultCfg();
   Preferences prefs;
   prefs.begin("kerry", true);
-  g_cfg.aecOn = prefs.getBool("exp_aec", true);
-  g_cfg.aecValue = prefs.getUShort("exp_aecv", 600);
-  g_cfg.aec2On = prefs.getBool("exp_aec2", false);
-  g_cfg.aeLevel = prefs.getChar("exp_ael", 0);
-  g_cfg.agcOn = prefs.getBool("exp_agc", true);
-  g_cfg.agcGain = prefs.getUChar("exp_agcg", 15);
-  g_cfg.gainCeiling = prefs.getUChar("exp_gceil", KERRY_EXP_GAIN_CEIL_SENTINEL);
-  g_cfg.clkrc = prefs.getUChar("exp_clkrc", KERRY_EXP_CLKRC_SENTINEL);
-  g_cfg.dummyLines = prefs.getUShort("exp_dummy", 0);
+  loaded.aecOn = prefs.getBool("exp_aec", true);
+  loaded.aecValue = prefs.getUShort("exp_aecv", 600);
+  loaded.aec2On = prefs.getBool("exp_aec2", false);
+  loaded.aeLevel = prefs.getChar("exp_ael", 0);
+  loaded.agcOn = prefs.getBool("exp_agc", true);
+  loaded.agcGain = prefs.getUChar("exp_agcg", 15);
+  loaded.gainCeiling = prefs.getUChar("exp_gceil", KERRY_EXP_GAIN_CEIL_SENTINEL);
+  loaded.clkrc = prefs.getUChar("exp_clkrc", KERRY_EXP_CLKRC_SENTINEL);
+  loaded.dummyLines = prefs.getUShort("exp_dummy", 0);
   prefs.end();
-  uint8_t storedClk = g_cfg.clkrc;
+
+  uint8_t storedClk = loaded.clkrc;
   uint8_t mappedClk = storedClk;
   bool migrateClk = true;
   if (storedClk == 0x81) mappedClk = KERRY_EXP_CLKRC_SENTINEL;
@@ -44,79 +73,130 @@ void kerryCamExposureLoad() {
   else if (storedClk == 0x87) mappedClk = 0x03;
   else if (storedClk == 0x8F) mappedClk = 0x07;
   else migrateClk = false;
+
+  kerry_cam_exp_cfg_t toSave = loaded;
+  bool needSave = false;
   if (migrateClk) {
     KERRY_LOGW("exposure", "stored clkrc 0x%02X migrated to 0x%02X", (unsigned)storedClk, (unsigned)mappedClk);
-    g_cfg.clkrc = mappedClk;
-    kerryCamExposureSave();
-  } else if (!kerryCamExposureClkrcAllowed(g_cfg.clkrc)) {
-    KERRY_LOGW("exposure", "stored clkrc 0x%02X is not valid, using driver default", (unsigned)g_cfg.clkrc);
-    g_cfg.clkrc = KERRY_EXP_CLKRC_SENTINEL;
-    kerryCamExposureSave();
+    toSave.clkrc = mappedClk;
+    needSave = true;
+  } else if (!kerryCamExposureClkrcAllowed(loaded.clkrc)) {
+    KERRY_LOGW("exposure", "stored clkrc 0x%02X is not valid, using driver default", (unsigned)loaded.clkrc);
+    toSave.clkrc = KERRY_EXP_CLKRC_SENTINEL;
+    needSave = true;
   }
+
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
+  g_cfg = needSave ? toSave : loaded;
   g_lastGood = kerryCamExposureDefaultCfg();
   g_hasLastGood = true;
   g_unverified = false;
-  KERRY_LOGI("exposure", "loaded aec=%d agc=%d clkrc=0x%02X dummy=%u", g_cfg.aecOn ? 1 : 0, g_cfg.agcOn ? 1 : 0,
-             (unsigned)g_cfg.clkrc, (unsigned)g_cfg.dummyLines);
+  xSemaphoreGive(g_storeMu);
+
+  if (needSave) writeNvs(&toSave);
+
+  KERRY_LOGI("exposure", "loaded aec=%d agc=%d clkrc=0x%02X dummy=%u", toSave.aecOn ? 1 : 0, toSave.agcOn ? 1 : 0,
+             (unsigned)toSave.clkrc, (unsigned)toSave.dummyLines);
 }
 
 void kerryCamExposureSave() {
-  Preferences prefs;
-  prefs.begin("kerry", false);
-  prefs.putBool("exp_aec", g_cfg.aecOn);
-  prefs.putUShort("exp_aecv", g_cfg.aecValue);
-  prefs.putBool("exp_aec2", g_cfg.aec2On);
-  prefs.putChar("exp_ael", g_cfg.aeLevel);
-  prefs.putBool("exp_agc", g_cfg.agcOn);
-  prefs.putUChar("exp_agcg", g_cfg.agcGain);
-  prefs.putUChar("exp_gceil", g_cfg.gainCeiling);
-  prefs.putUChar("exp_clkrc", g_cfg.clkrc);
-  prefs.putUShort("exp_dummy", g_cfg.dummyLines);
-  prefs.end();
+  kerry_cam_exp_cfg_t copy;
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
+  copy = g_cfg;
+  xSemaphoreGive(g_storeMu);
+  writeNvs(&copy);
 }
 
 void kerryCamExposureActivateStaged() {
-  if (!g_hasStaged) return;
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
+  if (!g_hasStaged) {
+    xSemaphoreGive(g_storeMu);
+    return;
+  }
   g_prevCfg = g_cfg;
   g_cfg = g_staged;
+  xSemaphoreGive(g_storeMu);
 }
 
-void kerryCamExposurePersistStaged() {
-  if (!g_hasStaged) return;
-  kerryCamExposureSave();
+bool kerryCamExposurePersistStaged() {
+  kerry_cam_exp_cfg_t toSave;
+  bool doSave = false;
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
+  if (!g_hasStaged) {
+    xSemaphoreGive(g_storeMu);
+    return true;
+  }
+  if (kerryCamExposureCfgEqual(&g_cfg, &g_staged)) {
+    toSave = g_cfg;
+    g_hasStaged = false;
+    doSave = true;
+    xSemaphoreGive(g_storeMu);
+    writeNvs(&toSave);
+    return true;
+  }
   g_hasStaged = false;
+  xSemaphoreGive(g_storeMu);
+  KERRY_LOGW("exposure", "staged exposure was reverted before persist, NVS unchanged");
+  return false;
 }
 
 void kerryCamExposureRollbackStaged() {
-  if (!g_hasStaged) return;
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
+  if (!g_hasStaged) {
+    xSemaphoreGive(g_storeMu);
+    return;
+  }
   g_cfg = g_prevCfg;
   g_hasStaged = false;
+  xSemaphoreGive(g_storeMu);
 }
 
 void kerryCamExposureNoteCaptureOk() {
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
   if (g_unverified) {
     g_lastGood = g_cfg;
     g_hasLastGood = true;
     g_unverified = false;
   }
   g_captureFailStreak = 0;
+  xSemaphoreGive(g_storeMu);
 }
 
 void kerryCamExposureNoteCaptureFail() {
+  kerry_cam_exp_cfg_t revertCfg;
+  bool scheduleRevert = false;
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
   if (g_captureFailStreak < 255) g_captureFailStreak++;
-  if (g_captureFailStreak < 2 || !g_unverified || !g_hasLastGood) return;
-  if (kerryCamExposureCfgEqual(&g_cfg, &g_lastGood)) return;
-  KERRY_LOGW("exposure", "capture failed twice, scheduling exposure revert");
-  g_cfg = g_lastGood;
-  kerryCamExposureSave();
-  g_revertPending = true;
+  if (g_captureFailStreak >= 2 && g_unverified && g_hasLastGood &&
+      !kerryCamExposureCfgEqual(&g_cfg, &g_lastGood)) {
+    revertCfg = g_lastGood;
+    g_cfg = g_lastGood;
+    scheduleRevert = true;
+    g_revertPending = true;
+  }
+  xSemaphoreGive(g_storeMu);
+  if (scheduleRevert) {
+    KERRY_LOGW("exposure", "capture failed twice, scheduling exposure revert");
+    writeNvs(&revertCfg);
+  }
 }
 
-bool kerryCamExposureRevertPending() { return g_revertPending; }
+bool kerryCamExposureRevertPending() {
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
+  bool pending = g_revertPending;
+  xSemaphoreGive(g_storeMu);
+  return pending;
+}
 
 void kerryCamExpStoreMarkApplied() {
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
   g_unverified = true;
   g_captureFailStreak = 0;
+  xSemaphoreGive(g_storeMu);
 }
 
-void kerryCamExpStoreClearRevertPending() { g_revertPending = false; }
+void kerryCamExpStoreClearRevertPending() {
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
+  g_revertPending = false;
+  xSemaphoreGive(g_storeMu);
+}

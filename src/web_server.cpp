@@ -492,10 +492,12 @@ static esp_err_t apiImagePost(httpd_req_t *req) {
     return sendJson(req, out);
   }
 
-  kerryCamExposurePersistStaged();
-
   out["ok"] = true;
-  out["message"] = "Image settings saved";
+  if (!kerryCamExposurePersistStaged()) {
+    out["message"] = "Image settings saved; exposure was reverted";
+  } else {
+    out["message"] = "Image settings saved";
+  }
   KERRY_LOGI("exposure", "image settings saved from web UI");
   JsonDocument settings;
   kerryImageGet(settings);

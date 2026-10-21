@@ -8,7 +8,7 @@ void kerryCamExpStoreSetStaged(const kerry_cam_exp_cfg_t *cfg);
 void kerryCamExposureLoad();
 void kerryCamExposureSave();
 void kerryCamExposureActivateStaged();
-void kerryCamExposurePersistStaged();
+bool kerryCamExposurePersistStaged();
 void kerryCamExposureRollbackStaged();
 void kerryCamExposureNoteCaptureOk();
 void kerryCamExposureNoteCaptureFail();
