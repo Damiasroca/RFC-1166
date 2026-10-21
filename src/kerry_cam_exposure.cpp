@@ -9,8 +9,9 @@
 #include <esp_camera.h>
 
 static kerry_cam_exp_cfg_t g_cfg = kerryCamExposureDefaultCfg();
-static kerry_cam_exp_cfg_t g_lastGood;
+static kerry_cam_exp_cfg_t g_lastGood = kerryCamExposureDefaultCfg();
 static bool g_hasLastGood = false;
+static bool g_unverified = false;
 static uint8_t g_captureFailStreak = 0;
 static volatile bool g_revertPending = false;
 
@@ -50,8 +51,9 @@ void kerryCamExposureLoad() {
     g_cfg.clkrc = KERRY_EXP_CLKRC_SENTINEL;
     kerryCamExposureSave();
   }
-  g_lastGood = g_cfg;
+  g_lastGood = kerryCamExposureDefaultCfg();
   g_hasLastGood = true;
+  g_unverified = false;
   KERRY_LOGI("exposure", "loaded aec=%d agc=%d clkrc=0x%02X dummy=%u", g_cfg.aecOn ? 1 : 0, g_cfg.agcOn ? 1 : 0,
              (unsigned)g_cfg.clkrc, (unsigned)g_cfg.dummyLines);
 }
@@ -224,8 +226,7 @@ const char *kerryCamExposureApply(bool discardFramesAfter) {
 
   if (discardFramesAfter) kerryCamDiscardFrames(2);
 
-  g_lastGood = g_cfg;
-  g_hasLastGood = true;
+  g_unverified = true;
   g_captureFailStreak = 0;
 
   KERRY_LOGI("exposure", "applied aec=%d val=%u aec2=%d ae=%d agc=%d gain=%u ceil=0x%02X clkrc=0x%02X dummy=%u",
@@ -239,11 +240,19 @@ uint32_t kerryCamExposureEstimatedMs() { return kerryCamExposureEstimateMs(&g_cf
 
 bool kerryCamExposureNeedsLenientWdt() { return kerryCamExposureEstimatedMs() > 4000; }
 
-void kerryCamExposureNoteCaptureOk() { g_captureFailStreak = 0; }
+void kerryCamExposureNoteCaptureOk() {
+  if (g_unverified) {
+    g_lastGood = g_cfg;
+    g_hasLastGood = true;
+    g_unverified = false;
+  }
+  g_captureFailStreak = 0;
+}
 
 void kerryCamExposureNoteCaptureFail() {
   if (g_captureFailStreak < 255) g_captureFailStreak++;
-  if (g_captureFailStreak < 2 || !g_hasLastGood) return;
+  if (g_captureFailStreak < 2 || !g_unverified || !g_hasLastGood) return;
+  if (kerryCamExposureCfgEqual(&g_cfg, &g_lastGood)) return;
   KERRY_LOGW("exposure", "capture failed twice, scheduling exposure revert");
   g_cfg = g_lastGood;
   kerryCamExposureSave();
