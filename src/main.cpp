@@ -21,6 +21,7 @@
 #include "geopulse.h"
 #include "kerry_awb.h"
 #include "kerry_cam_exposure.h"
+#include "kerry_cam_ov2640.h"
 #include "kerry_health.h"
 #include "kerry_log.h"
 #include "kerry_shared.h"
@@ -336,8 +337,13 @@ static void applyCameraImageSettings() {
   if (sensor->set_framesize && (int)sensor->status.framesize != (int)target) {
     if (ov5640SketchActive)
       ov5640SetCaptureFramesize(sensor, target, true);
-    else
+    else {
       sensor->set_framesize(sensor, target);
+      if (sensor->id.PID == OV2640_PID) {
+        const char *defErr = kerryOv2640CaptureDefaults(sensor);
+        if (defErr) logw("%s", defErr);
+      }
+    }
   }
 }
 
@@ -634,6 +640,11 @@ static bool startCameraWithPwdn(int pwdnEnd, bool forceStandard) {
   kerryHealthNoteCameraOk();
   applyFlash();
   if (ov5640SketchActive) initOv5640AutoFocus();
+  if (sensor && sensor->id.PID == OV2640_PID) {
+    kerryOv2640ForgetDefaults();
+    const char *defErr = kerryOv2640CaptureDefaults(sensor);
+    if (defErr) logw("%s", defErr);
+  }
   applyCameraControls();
   return true;
 }

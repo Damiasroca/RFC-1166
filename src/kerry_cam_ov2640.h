@@ -5,5 +5,9 @@
 
 bool kerryOv2640Is(uint16_t pid);
 
-// Writes CLKRC / dummy-line registers. Sentinel clock and zero dummy lines are left untouched.
-int kerryOv2640ApplyTiming(sensor_t *s, uint8_t clkrc, uint16_t dummyLines);
+void kerryOv2640ForgetDefaults();
+const char *kerryOv2640CaptureDefaults(sensor_t *s);
+bool kerryOv2640DefaultsReady();
+
+// Writes CLKRC and both dummy-line registers. Sentinel clock and zero dummy lines use the cached driver values.
+const char *kerryOv2640ApplyTiming(sensor_t *s, uint8_t clkrc, uint16_t dummyLines);

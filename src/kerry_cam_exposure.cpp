@@ -188,9 +188,10 @@ const char *kerryCamExposureApply(bool discardFramesAfter) {
   uint16_t pid = s->id.PID;
 
   if (kerryOv2640Is(pid)) {
-    if (kerryOv2640ApplyTiming(s, g_cfg.clkrc, g_cfg.dummyLines) != 0) {
-      KERRY_LOGW("exposure", "OV2640 timing registers rejected");
-      return "Sensor rejected clock or dummy-line settings";
+    const char *timingErr = kerryOv2640ApplyTiming(s, g_cfg.clkrc, g_cfg.dummyLines);
+    if (timingErr) {
+      KERRY_LOGW("exposure", "%s", timingErr);
+      return timingErr;
     }
   }
 
