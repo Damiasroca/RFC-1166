@@ -318,11 +318,12 @@ static bool frameSizeFallback(framesize_t size) {
          size == FRAMESIZE_QXGA;
 }
 
-static framesize_t effectiveFrameSize() {
-  framesize_t size = camFrameSize;
-  if (!psramFound() && size > FRAMESIZE_VGA) size = FRAMESIZE_VGA;
+static framesize_t applyPsramFrameLimit(framesize_t size) {
+  if (!psramFound() && size > FRAMESIZE_VGA) return FRAMESIZE_VGA;
   return size;
 }
+
+static framesize_t effectiveFrameSize() { return applyPsramFrameLimit(camFrameSize); }
 
 static void ov5640SetCaptureFramesize(sensor_t *sensor, framesize_t fs, bool refocusAfterResize);
 static void discardCameraFrames(int count);
@@ -1037,16 +1038,26 @@ void kerryImageGet(JsonDocument &doc) {
   kerryCamExposureFillJson(doc);
 }
 
-const char *kerryImageSet(int framesize, int brightness, int contrast, int saturation, int flipHSet, int flipVSet) {
-  if (streamActive) return "Close the live stream first";
-  if (camGrabActive) return "Capture in progress, try again";
-
+const char *kerryImageResolveFramesize(int framesize, framesize_t *out) {
   framesize_t newSize = (framesize < 0) ? camFrameSize : (framesize_t)framesize;
   if (framesize >= 0) {
     if (!frameSizeAllowed(newSize)) return "Unsupported resolution";
     if (!psramFound() && newSize > FRAMESIZE_VGA) return "No PSRAM for that resolution";
   }
+  *out = applyPsramFrameLimit(newSize);
+  return nullptr;
+}
 
+const char *kerryImageSet(int framesize, int brightness, int contrast, int saturation, int flipHSet, int flipVSet) {
+  if (streamActive) return "Close the live stream first";
+  if (camGrabActive) return "Capture in progress, try again";
+
+  framesize_t resolved = FRAMESIZE_INVALID;
+  const char *fsErr = kerryImageResolveFramesize(framesize, &resolved);
+  if (fsErr) return fsErr;
+  (void)resolved;
+
+  framesize_t newSize = (framesize < 0) ? camFrameSize : (framesize_t)framesize;
   bool resolutionChanged = newSize != camFrameSize;
   if (framesize >= 0) camFrameSize = newSize;
   if (brightness >= -2) camBrightness = clampCamLevel(brightness);

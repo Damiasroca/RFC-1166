@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <esp_camera.h>
 #include <esp_http_server.h>
 
 extern const char *AP_SSID;
@@ -30,6 +31,7 @@ int kerryCamDiscardFrames(int count, uint32_t *tsMs = nullptr, int tsCap = 0);
 bool kerryCameraReady();
 const char *kerryCameraSensorName();
 void kerryImageGet(JsonDocument &doc);
+const char *kerryImageResolveFramesize(int framesize, framesize_t *out);
 const char *kerryImageSet(int framesize, int brightness, int contrast, int saturation, int flipHSet, int flipVSet);
 
 bool kerryUploadNow(char *message, size_t messageLen);
