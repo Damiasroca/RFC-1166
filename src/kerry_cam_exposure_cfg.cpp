@@ -3,6 +3,7 @@
 #include "kerry_cam_ov2640.h"
 
 #include <esp_camera.h>
+#include <stdio.h>
 
 kerry_cam_exp_cfg_t kerryCamExposureDefaultCfg() {
   kerry_cam_exp_cfg_t cfg = {};
@@ -37,20 +38,63 @@ bool kerryCamExposureClkrcAllowed(uint8_t v) {
   return div == 1 || div == 3 || div == 7 || div == 15;
 }
 
-uint32_t kerryCamExposureEstimateMs(const kerry_cam_exp_cfg_t *cfg) {
-  uint32_t ms = 120;
-  if (!cfg->aecOn) {
-    ms = 80 + ((uint32_t)cfg->aecValue * 2500UL) / 1200UL;
-  } else if (cfg->aec2On) {
-    ms = 350;
-  }
-  if (cfg->clkrc == 0xC0) ms = (ms * 3) / 2;
-  else if (cfg->clkrc == 0xE0) ms *= 2;
-  if (cfg->dummyLines > 0) ms += (uint32_t)cfg->dummyLines / 2;
-  return ms;
+uint32_t kerryCamExposureBudgetMs() { return (4000UL * 3UL) / 4UL; }
+
+static uint32_t g_measuredMs = 0;
+static uint32_t g_simpleAtMeasure = 0;
+
+static uint32_t simpleEstimateMs(const kerry_cam_exp_cfg_t *cfg) {
+  if (!cfg->aecOn) return 80 + ((uint32_t)cfg->aecValue * 2500UL) / 1200UL;
+  if (cfg->aec2On) return 350;
+  return 120;
 }
 
-const char *kerryCamExposureCfgValidate(const kerry_cam_exp_cfg_t *cfg, uint16_t pid) {
+uint32_t kerryCamExposureMeasuredMs() { return g_measuredMs; }
+
+void kerryCamExposureNoteMeasured(uint32_t periodMs, const kerry_cam_exp_cfg_t *cfg, uint16_t pid, framesize_t fs) {
+  g_measuredMs = periodMs;
+  if (periodMs == 0 || !cfg) return;
+  if (kerryOv2640Is(pid)) {
+    kerryOv2640NoteBaseline(fs, cfg->clkrc, cfg->dummyLines, cfg->aecOn, cfg->aecValue, periodMs);
+  } else {
+    g_simpleAtMeasure = simpleEstimateMs(cfg);
+  }
+}
+
+static uint32_t ov2640EstimateMs(const kerry_cam_exp_cfg_t *cfg, framesize_t fs) {
+  uint32_t base = kerryOv2640BaseFrameLines(fs);
+  uint32_t lines = base + cfg->dummyLines;
+  if (!cfg->aecOn && cfg->aecValue > lines) lines = cfg->aecValue;
+  uint32_t num = 1;
+  uint32_t den = 1;
+  kerryOv2640PeriodScale(cfg->clkrc, &num, &den);
+  uint32_t basePeriod = kerryOv2640BasePeriodMs(fs);
+  if (basePeriod == 0) {
+    uint32_t tline = 1922;
+    if ((int)fs <= (int)FRAMESIZE_CIF) tline = 595;
+    else if ((int)fs <= (int)FRAMESIZE_SVGA) tline = 1190;
+    uint32_t xclk = 16000000;
+    sensor_t *s = esp_camera_sensor_get();
+    if (s && s->xclk_freq_hz > 1000000) xclk = (uint32_t)s->xclk_freq_hz;
+    basePeriod = (uint32_t)(((uint64_t)base * tline * 1000ULL) / xclk);
+    if (basePeriod == 0) basePeriod = 1;
+  }
+  if (base == 0 || den == 0) return basePeriod;
+  uint64_t ms = (uint64_t)basePeriod * num * lines / ((uint64_t)den * base);
+  if (ms == 0) return 1;
+  if (ms > 0xFFFFFFFFULL) return 0xFFFFFFFFUL;
+  return (uint32_t)ms;
+}
+
+uint32_t kerryCamExposureEstimateMs(const kerry_cam_exp_cfg_t *cfg, uint16_t pid, framesize_t fs) {
+  if (kerryOv2640Is(pid)) return ov2640EstimateMs(cfg, fs);
+  uint32_t simple = simpleEstimateMs(cfg);
+  if (g_measuredMs > 0 && g_simpleAtMeasure > 0)
+    return (uint32_t)((uint64_t)g_measuredMs * simple / g_simpleAtMeasure);
+  return simple;
+}
+
+const char *kerryCamExposureCfgValidate(const kerry_cam_exp_cfg_t *cfg, uint16_t pid, framesize_t fs) {
   if (cfg->aecValue > kerryCamExposureAecValueMax(pid)) return "aecValue out of range";
   if (cfg->aeLevel < kerryCamExposureAeLevelMin(pid) || cfg->aeLevel > kerryCamExposureAeLevelMax(pid))
     return "aeLevel out of range";
@@ -59,7 +103,13 @@ const char *kerryCamExposureCfgValidate(const kerry_cam_exp_cfg_t *cfg, uint16_t
     return "gainCeiling out of range";
   if (!kerryCamExposureClkrcAllowed(cfg->clkrc)) return "clkrc not allowed";
   if (cfg->dummyLines > 512) return "dummyLines out of range";
-  if (kerryCamExposureEstimateMs(cfg) > 10000)
-    return "Exposure timing too long; reduce manual exposure or dummy lines";
+  uint32_t estimate = kerryCamExposureEstimateMs(cfg, pid, fs);
+  uint32_t budget = kerryCamExposureBudgetMs();
+  if (estimate > budget) {
+    static char msg[96];
+    snprintf(msg, sizeof msg, "Exposure timing too long (%u ms estimate, limit %u ms)", (unsigned)estimate,
+             (unsigned)budget);
+    return msg;
+  }
   return nullptr;
 }

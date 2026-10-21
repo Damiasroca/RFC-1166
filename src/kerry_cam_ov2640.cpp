@@ -22,6 +22,49 @@ void kerryOv2640ForgetDefaults() {
 
 bool kerryOv2640DefaultsReady() { return g_haveDefaults; }
 
+uint8_t kerryOv2640DefaultClkrc() { return g_defClkrc; }
+
+uint16_t kerryOv2640BaseFrameLines(framesize_t fs) {
+  if ((int)fs <= (int)FRAMESIZE_CIF) return 336;
+  if ((int)fs <= (int)FRAMESIZE_SVGA) return 672;
+  return 1248;
+}
+
+void kerryOv2640PeriodScale(uint8_t userClkrc, uint32_t *num, uint32_t *den) {
+  uint8_t applied = userClkrc == KERRY_EXP_CLKRC_SENTINEL ? g_defClkrc : userClkrc;
+  uint32_t dMul = (g_defClkrc & 0x80) ? 2u : 1u;
+  uint32_t uMul = (applied & 0x80) ? 2u : 1u;
+  uint32_t dDiv = (uint32_t)(g_defClkrc & 0x3F) + 1u;
+  uint32_t uDiv = (uint32_t)(applied & 0x3F) + 1u;
+  *num = dMul * uDiv;
+  *den = uMul * dDiv;
+  if (*den == 0) *den = 1;
+}
+
+static uint32_t g_basePeriodMs[FRAMESIZE_INVALID];
+
+uint32_t kerryOv2640BasePeriodMs(framesize_t fs) {
+  if ((int)fs < 0 || fs >= FRAMESIZE_INVALID) return 0;
+  return g_basePeriodMs[fs];
+}
+
+void kerryOv2640NoteBaseline(framesize_t fs, uint8_t clkrc, uint16_t dummyLines, bool aecOn, uint16_t aecValue,
+                             uint32_t measuredMs) {
+  if ((int)fs < 0 || fs >= FRAMESIZE_INVALID || measuredMs == 0) return;
+  uint32_t base = kerryOv2640BaseFrameLines(fs);
+  uint32_t lines = base + dummyLines;
+  if (!aecOn && aecValue > lines) lines = aecValue;
+  uint32_t num = 1;
+  uint32_t den = 1;
+  kerryOv2640PeriodScale(clkrc, &num, &den);
+  if (num == 0 || lines == 0 || base == 0) return;
+  uint64_t baseline = (uint64_t)measuredMs * den * base / ((uint64_t)num * lines);
+  if (baseline == 0) baseline = 1;
+  g_basePeriodMs[fs] = (uint32_t)baseline;
+  KERRY_LOGD("exposure", "ov2640 baseline %ums framesize %d measured %ums", (unsigned)baseline, (int)fs,
+             (unsigned)measuredMs);
+}
+
 const char *kerryOv2640CaptureDefaults(sensor_t *s) {
   if (!s || !s->get_reg) return "OV2640 register read is unavailable";
   int clk = readReg(s, 0x0111);

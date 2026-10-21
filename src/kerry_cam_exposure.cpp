@@ -5,6 +5,7 @@
 #include "kerry_log.h"
 #include "kerry_shared.h"
 
+#include <Arduino.h>
 #include <Preferences.h>
 #include <esp_camera.h>
 
@@ -14,6 +15,8 @@ static bool g_hasLastGood = false;
 static bool g_unverified = false;
 static uint8_t g_captureFailStreak = 0;
 static volatile bool g_revertPending = false;
+
+static void kerryCamExposureSettle();
 
 static gainceiling_t gainCeilingEnum(uint8_t idx) {
   if (idx > GAINCEILING_128X) idx = GAINCEILING_128X;
@@ -85,6 +88,7 @@ void kerryCamExposureFillJson(JsonDocument &doc) {
   exp["clkrc"] = g_cfg.clkrc;
   exp["dummyLines"] = g_cfg.dummyLines;
   exp["estimatedFrameMs"] = kerryCamExposureEstimatedMs();
+  exp["measuredFrameMs"] = kerryCamExposureMeasuredMs();
 
   JsonObject caps = doc["exposureCaps"].to<JsonObject>();
   sensor_t *s = esp_camera_sensor_get();
@@ -126,6 +130,7 @@ const char *kerryCamExposureUpdate(JsonObjectConst exp) {
 
   sensor_t *s = esp_camera_sensor_get();
   uint16_t pid = s ? s->id.PID : OV2640_PID;
+  framesize_t fs = s ? s->status.framesize : FRAMESIZE_SVGA;
 
   if (exp["aecValue"].is<int>()) {
     int v = exp["aecValue"].as<int>();
@@ -176,7 +181,7 @@ const char *kerryCamExposureUpdate(JsonObjectConst exp) {
     }
   }
 
-  if (!err) err = kerryCamExposureCfgValidate(&staged, pid);
+  if (!err) err = kerryCamExposureCfgValidate(&staged, pid, fs);
   if (err) return err;
   g_cfg = staged;
   kerryCamExposureSave();
@@ -224,7 +229,7 @@ const char *kerryCamExposureApply(bool discardFramesAfter) {
     if (s->set_quality) s->set_quality(s, 12);
   }
 
-  if (discardFramesAfter) kerryCamDiscardFrames(2);
+  if (discardFramesAfter) kerryCamExposureSettle();
 
   g_unverified = true;
   g_captureFailStreak = 0;
@@ -236,9 +241,53 @@ const char *kerryCamExposureApply(bool discardFramesAfter) {
   return nullptr;
 }
 
-uint32_t kerryCamExposureEstimatedMs() { return kerryCamExposureEstimateMs(&g_cfg); }
+uint32_t kerryCamExposureEstimatedMs() {
+  sensor_t *s = esp_camera_sensor_get();
+  uint16_t pid = s ? s->id.PID : OV2640_PID;
+  framesize_t fs = s ? s->status.framesize : FRAMESIZE_SVGA;
+  return kerryCamExposureEstimateMs(&g_cfg, pid, fs);
+}
 
-bool kerryCamExposureNeedsLenientWdt() { return kerryCamExposureEstimatedMs() > 4000; }
+uint32_t kerryCamExposureFrameMs() {
+  uint32_t measured = kerryCamExposureMeasuredMs();
+  if (measured > 0) return measured;
+  return kerryCamExposureEstimatedMs();
+}
+
+bool kerryCamExposureNeedsLenientWdt() { return kerryCamExposureFrameMs() > 4000; }
+
+static void kerryCamExposureSettle() {
+  kerryWdtLenient();
+  bool manual = !g_cfg.aecOn && !g_cfg.agcOn;
+  uint32_t timeCap = kerryCamExposureBudgetMs() * 3UL;
+  const int frameCap = 10;
+  int minFrames = manual ? 2 : 3;
+  uint32_t minMs = manual ? 0 : 1500;
+  uint32_t started = millis();
+  uint32_t freshTs[10];
+  int fresh = 0;
+  int attempts = 0;
+  kerryCamExposureNoteMeasured(0, &g_cfg, 0, FRAMESIZE_SVGA);
+  while (fresh < frameCap && attempts < frameCap && (uint32_t)(millis() - started) < timeCap) {
+    uint32_t ts = 0;
+    int n = kerryCamDiscardFrames(1, &ts, 1);
+    attempts++;
+    if (n <= 0) break;
+    if ((int32_t)(started - ts) > 50) continue;
+    freshTs[fresh++] = ts;
+    if (fresh >= minFrames && (uint32_t)(millis() - started) >= minMs) break;
+  }
+  kerryWdtRestore();
+  if (fresh < 2) return;
+  uint32_t newer = freshTs[fresh - 1];
+  uint32_t older = freshTs[fresh - 2];
+  if (newer <= older) return;
+  sensor_t *s = esp_camera_sensor_get();
+  uint16_t pid = s ? s->id.PID : 0;
+  framesize_t fs = s ? s->status.framesize : FRAMESIZE_SVGA;
+  kerryCamExposureNoteMeasured(newer - older, &g_cfg, pid, fs);
+  KERRY_LOGD("exposure", "measured frame period %ums", (unsigned)(newer - older));
+}
 
 void kerryCamExposureNoteCaptureOk() {
   if (g_unverified) {

@@ -26,7 +26,7 @@ void kerrySaveUploadSettings();
 
 bool kerryStreamActive();
 bool kerryCamGrabActive();
-void kerryCamDiscardFrames(int count);
+int kerryCamDiscardFrames(int count, uint32_t *tsMs = nullptr, int tsCap = 0);
 bool kerryCameraReady();
 const char *kerryCameraSensorName();
 void kerryImageGet(JsonDocument &doc);

@@ -484,13 +484,19 @@ static camera_fb_t *camFbGetBlocking(bool noteHealth) {
   return fb;
 }
 
+static uint32_t grabLockDeadlineMs() {
+  uint32_t period = kerryCamExposureFrameMs();
+  uint32_t deadline = millis() + 5000UL + period * 2UL;
+  if ((uint32_t)(deadline - millis()) > 30000UL) deadline = millis() + 30000UL;
+  return deadline;
+}
+
 // Caller must hold camLock. Lock is released for the blocking fb_get, then reacquired.
 static camera_fb_t *camFbGetHeldLock(bool noteHealth) {
   camGrabActive = true;
   unlockCam();
   camera_fb_t *fb = camFbGetBlocking(noteHealth);
-  uint32_t deadline = millis() + 5000UL + kerryCamExposureEstimatedMs() * 2UL;
-  if ((uint32_t)(deadline - millis()) > 30000UL) deadline = millis() + 30000UL;
+  uint32_t deadline = grabLockDeadlineMs();
   while (!lockCam(200)) {
     if ((int32_t)(millis() - deadline) >= 0) {
       logw("cam lock reacquire failed after fb_get");
@@ -937,25 +943,41 @@ bool kerryStreamActive() { return streamActive; }
 
 bool kerryCamGrabActive() { return camGrabActive; }
 
-void kerryCamDiscardFrames(int count) {
-  if (count <= 0 || !camLockHeld) return;
+int kerryCamDiscardFrames(int count, uint32_t *tsMs, int tsCap) {
+  if (count <= 0 || !camLockHeld) return 0;
+  int got = 0;
   for (int i = 0; i < count; i++) {
     camGrabActive = true;
     unlockCam();
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (fb) esp_camera_fb_return(fb);
+    camera_fb_t *fb = camFbGetBlocking(false);
+    uint32_t stamp = 0;
+    bool have = false;
+    if (fb) {
+      int64_t us = (int64_t)fb->timestamp.tv_sec * 1000000LL + (int64_t)fb->timestamp.tv_usec;
+      if (us > 0) stamp = (uint32_t)(us / 1000LL);
+      have = true;
+      esp_camera_fb_return(fb);
+    }
     delay(40);
-    uint32_t deadline = millis() + 3000;
+    uint32_t deadline = grabLockDeadlineMs();
     while (!lockCam(200)) {
       if ((int32_t)(millis() - deadline) >= 0) {
         camGrabActive = false;
         logw("discard: cam lock reacquire failed");
-        return;
+        if (have) {
+          if (tsMs && got < tsCap) tsMs[got] = stamp;
+          got++;
+        }
+        return got;
       }
       delay(10);
     }
     camGrabActive = false;
+    if (!have) break;
+    if (tsMs && got < tsCap) tsMs[got] = stamp;
+    got++;
   }
+  return got;
 }
 
 bool kerryCameraReady() { return cameraReady; }

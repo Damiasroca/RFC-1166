@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#include <esp_camera.h>
+
 #include "kerry_cam_exposure.h"
 
 typedef struct {
@@ -24,5 +26,8 @@ int kerryCamExposureAeLevelMax(uint16_t pid);
 uint16_t kerryCamExposureAecValueMax(uint16_t pid);
 bool kerryCamExposureClkrcAllowed(uint8_t v);
 
-uint32_t kerryCamExposureEstimateMs(const kerry_cam_exp_cfg_t *cfg);
-const char *kerryCamExposureCfgValidate(const kerry_cam_exp_cfg_t *cfg, uint16_t pid);
+uint32_t kerryCamExposureBudgetMs();
+uint32_t kerryCamExposureMeasuredMs();
+void kerryCamExposureNoteMeasured(uint32_t periodMs, const kerry_cam_exp_cfg_t *cfg, uint16_t pid, framesize_t fs);
+uint32_t kerryCamExposureEstimateMs(const kerry_cam_exp_cfg_t *cfg, uint16_t pid, framesize_t fs);
+const char *kerryCamExposureCfgValidate(const kerry_cam_exp_cfg_t *cfg, uint16_t pid, framesize_t fs);
