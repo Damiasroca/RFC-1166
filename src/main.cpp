@@ -1093,10 +1093,10 @@ const char *kerryImageSet(int framesize, int brightness, int contrast, int satur
     applyCameraControls();
     ok = cameraReady;
   }
+  const char *applyErr = kerryCamExposureLastApplyError();
   unlockCam();
 
   if (!ok) return "Camera rejected settings";
-  const char *applyErr = kerryCamExposureLastApplyError();
   if (applyErr) return applyErr;
   logf("image resolution=%d bright=%d contrast=%d saturation=%d flipH=%d flipV=%d", (int)camFrameSize,
        camBrightness, camContrast, camSaturation, flipH ? 1 : 0, flipV ? 1 : 0);
