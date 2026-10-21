@@ -39,9 +39,8 @@ uint16_t kerryCamExposureAecValueMax(const kerry_cam_exp_cfg_t *cfg, uint16_t pi
 
 bool kerryCamExposureClkrcAllowed(uint8_t v) {
   if (v == KERRY_EXP_CLKRC_SENTINEL) return true;
-  if ((v & 0xC0) != 0x80) return false;
-  uint8_t div = v & 0x3F;
-  return div == 1 || div == 3 || div == 7 || div == 15;
+  if ((v & 0xC0) != 0) return false;
+  return v == 0x01 || v == 0x03 || v == 0x07 || v == 0x0F;
 }
 
 uint32_t kerryCamExposureBudgetMs() { return (4000UL * 3UL) / 4UL; }

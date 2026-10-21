@@ -49,7 +49,19 @@ void kerryCamExposureLoad() {
   g_cfg.clkrc = prefs.getUChar("exp_clkrc", KERRY_EXP_CLKRC_SENTINEL);
   g_cfg.dummyLines = prefs.getUShort("exp_dummy", 0);
   prefs.end();
-  if (!kerryCamExposureClkrcAllowed(g_cfg.clkrc)) {
+  uint8_t storedClk = g_cfg.clkrc;
+  uint8_t mappedClk = storedClk;
+  bool migrateClk = true;
+  if (storedClk == 0x81) mappedClk = KERRY_EXP_CLKRC_SENTINEL;
+  else if (storedClk == 0x83) mappedClk = 0x01;
+  else if (storedClk == 0x87) mappedClk = 0x03;
+  else if (storedClk == 0x8F) mappedClk = 0x07;
+  else migrateClk = false;
+  if (migrateClk) {
+    KERRY_LOGW("exposure", "stored clkrc 0x%02X migrated to 0x%02X", (unsigned)storedClk, (unsigned)mappedClk);
+    g_cfg.clkrc = mappedClk;
+    kerryCamExposureSave();
+  } else if (!kerryCamExposureClkrcAllowed(g_cfg.clkrc)) {
     KERRY_LOGW("exposure", "stored clkrc 0x%02X is not valid, using driver default", (unsigned)g_cfg.clkrc);
     g_cfg.clkrc = KERRY_EXP_CLKRC_SENTINEL;
     kerryCamExposureSave();
@@ -118,7 +130,7 @@ void kerryCamExposureFillJson(JsonDocument &doc) {
     const struct {
       uint8_t v;
       const char *label;
-    } opts[] = {{0x81, "÷2"}, {0x83, "÷4"}, {0x87, "÷8"}, {0x8F, "÷16"}};
+    } opts[] = {{0x01, "÷2"}, {0x03, "÷4"}, {0x07, "÷8"}, {0x0F, "÷16"}};
     for (auto &o : opts) {
       JsonObject row = clkrcOpts.add<JsonObject>();
       row["value"] = o.v;
