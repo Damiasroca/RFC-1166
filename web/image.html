@@ -306,24 +306,30 @@
       document.getElementById("aecOn").checked = !!exp.aecOn;
       document.getElementById("aec2On").checked = !!exp.aec2On;
       document.getElementById("agcOn").checked = !!exp.agcOn;
+      document.getElementById("dummyLines").value = exp.dummyLines != null ? exp.dummyLines : 0;
+      document.getElementById("dummyLinesVal").textContent = document.getElementById("dummyLines").value;
+      if (caps) {
+        if (caps.aecBaseLines != null) {
+          syncAecMaxFromDummy();
+        } else {
+          var aecMax = caps.aecMax || 1200;
+          document.getElementById("aecValue").max = String(aecMax);
+          document.getElementById("aecMax").textContent = String(aecMax);
+        }
+      }
       document.getElementById("aecValue").value = exp.aecValue != null ? exp.aecValue : 600;
       document.getElementById("aecValueVal").textContent = document.getElementById("aecValue").value;
       document.getElementById("aeLevel").value = exp.aeLevel != null ? exp.aeLevel : 0;
       document.getElementById("aeLevelVal").textContent = document.getElementById("aeLevel").value;
       document.getElementById("agcGain").value = exp.agcGain != null ? exp.agcGain : 15;
       document.getElementById("agcGainVal").textContent = document.getElementById("agcGain").value;
-      document.getElementById("dummyLines").value = exp.dummyLines != null ? exp.dummyLines : 0;
-      document.getElementById("dummyLinesVal").textContent = document.getElementById("dummyLines").value;
       if (caps) {
         document.getElementById("aecMin").textContent = "0";
-        document.getElementById("aecMax").textContent = String(caps.aecMax || 1200);
-        document.getElementById("aecValue").max = String(caps.aecMax || 1200);
         document.getElementById("aeLevelMin").textContent = String(caps.aeLevelMin != null ? caps.aeLevelMin : -5);
         document.getElementById("aeLevelMax").textContent = String(caps.aeLevelMax != null ? caps.aeLevelMax : 5);
         document.getElementById("aeLevel").min = String(caps.aeLevelMin != null ? caps.aeLevelMin : -5);
         document.getElementById("aeLevel").max = String(caps.aeLevelMax != null ? caps.aeLevelMax : 5);
         document.getElementById("ov2640Timing").style.display = caps.supportsClkrc ? "block" : "none";
-        syncAecMaxFromDummy();
         fillGainCeiling(document.getElementById("gainCeiling"), exp.gainCeiling, caps);
         if (caps.supportsClkrc) fillClkrcOptions(caps, exp.clkrc);
       } else {
