@@ -26,6 +26,9 @@ int kerryCamExposureAeLevelMax(uint16_t pid);
 uint16_t kerryCamExposureAecValueMax(const kerry_cam_exp_cfg_t *cfg, uint16_t pid, framesize_t fs);
 bool kerryCamExposureClkrcAllowed(uint8_t v);
 
+// Mirrors FB_GET_TIMEOUT in esp32-camera esp_camera.c.
+#define KERRY_CAM_FB_GET_TIMEOUT_MS 4000
+
 uint32_t kerryCamExposureBudgetMs();
 uint32_t kerryCamExposureMeasuredMs();
 void kerryCamExposureNoteMeasured(uint32_t periodMs, const kerry_cam_exp_cfg_t *cfg, uint16_t pid, framesize_t fs);

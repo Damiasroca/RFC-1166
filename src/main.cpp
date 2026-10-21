@@ -472,10 +472,7 @@ static bool bootCamera(const camera_config_t *config, int pwdnEnd) {
 }
 
 static camera_fb_t *camFbGetBlocking(bool noteHealth) {
-  bool lenient = kerryCamExposureNeedsLenientWdt();
-  if (lenient) kerryWdtLenient();
   camera_fb_t *fb = esp_camera_fb_get();
-  if (lenient) kerryWdtRestore();
   if (noteHealth) {
     if (fb)
       kerryCamExposureNoteCaptureOk();

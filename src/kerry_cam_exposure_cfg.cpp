@@ -43,7 +43,7 @@ bool kerryCamExposureClkrcAllowed(uint8_t v) {
   return v == 0x01 || v == 0x03 || v == 0x07 || v == 0x0F;
 }
 
-uint32_t kerryCamExposureBudgetMs() { return (4000UL * 3UL) / 4UL; }
+uint32_t kerryCamExposureBudgetMs() { return (KERRY_CAM_FB_GET_TIMEOUT_MS * 3UL) / 4UL; }
 
 static uint32_t g_measuredMs = 0;
 static uint32_t g_simpleAtMeasure = 0;

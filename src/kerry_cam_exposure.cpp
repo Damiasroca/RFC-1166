@@ -300,8 +300,6 @@ uint32_t kerryCamExposureFrameMs() {
   return kerryCamExposureEstimatedMs();
 }
 
-bool kerryCamExposureNeedsLenientWdt() { return kerryCamExposureFrameMs() > 4000; }
-
 static void kerryCamExposureSettle() {
   kerryWdtLenient();
   bool manual = !g_cfg.aecOn && !g_cfg.agcOn;

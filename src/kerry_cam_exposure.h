@@ -21,7 +21,6 @@ const char *kerryCamExposureApply(bool discardFrames);
 
 uint32_t kerryCamExposureEstimatedMs();
 uint32_t kerryCamExposureFrameMs();
-bool kerryCamExposureNeedsLenientWdt();
 
 void kerryCamExposureNoteCaptureOk();
 void kerryCamExposureNoteCaptureFail();
