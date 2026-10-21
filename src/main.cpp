@@ -1620,14 +1620,39 @@ static const esp_task_wdt_config_t WDT_DEFAULT = {
     .trigger_panic = true,
 };
 
+static portMUX_TYPE g_wdtMux = portMUX_INITIALIZER_UNLOCKED;
+static int g_wdtDepth = 0;
+
 void kerryWdtLenient() {
-  disableLoopWDT();
-  esp_task_wdt_reconfigure(&WDT_UPLOAD);
+  bool enter = false;
+  portENTER_CRITICAL(&g_wdtMux);
+  if (g_wdtDepth == 0) enter = true;
+  g_wdtDepth++;
+  portEXIT_CRITICAL(&g_wdtMux);
+  if (enter) {
+    disableLoopWDT();
+    esp_task_wdt_reconfigure(&WDT_UPLOAD);
+  }
 }
 
 void kerryWdtRestore() {
-  esp_task_wdt_reconfigure(&WDT_DEFAULT);
-  enableLoopWDT();
+  bool leave = false;
+  bool unmatched = false;
+  portENTER_CRITICAL(&g_wdtMux);
+  if (g_wdtDepth == 0) {
+    unmatched = true;
+  } else {
+    if (g_wdtDepth == 1) leave = true;
+    g_wdtDepth--;
+  }
+  portEXIT_CRITICAL(&g_wdtMux);
+  if (unmatched && kerry_log_every_ms("wdt_restore_unmatched", 60000)) {
+    logw("kerryWdtRestore called with no matching lenient section");
+  }
+  if (leave) {
+    esp_task_wdt_reconfigure(&WDT_DEFAULT);
+    enableLoopWDT();
+  }
 }
 
 static void logUploadMem(const char *phase) {
