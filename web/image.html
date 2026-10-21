@@ -258,11 +258,16 @@
 
     var GAIN_CEIL_LABELS = ["2×", "4×", "8×", "16×", "32×", "64×", "128×"];
 
-    function fillGainCeiling(sel, current) {
+    function fillGainCeiling(sel, current, caps) {
       sel.innerHTML = "";
       var autoOpt = document.createElement("option");
       autoOpt.value = "255";
-      autoOpt.textContent = "Auto (sensor default)";
+      var label = "Auto (driver default)";
+      if (caps && caps.gainCeilingDefault != null && caps.gainCeilingDefault >= 0) {
+        var name = GAIN_CEIL_LABELS[caps.gainCeilingDefault] || "";
+        label = "Auto (firmware default: " + name + ")";
+      }
+      autoOpt.textContent = label;
       sel.appendChild(autoOpt);
       for (var i = 0; i <= 6; i++) {
         var opt = document.createElement("option");
@@ -319,10 +324,10 @@
         document.getElementById("aeLevel").max = String(caps.aeLevelMax != null ? caps.aeLevelMax : 5);
         document.getElementById("ov2640Timing").style.display = caps.supportsClkrc ? "block" : "none";
         syncAecMaxFromDummy();
-        fillGainCeiling(document.getElementById("gainCeiling"), exp.gainCeiling);
+        fillGainCeiling(document.getElementById("gainCeiling"), exp.gainCeiling, caps);
         if (caps.supportsClkrc) fillClkrcOptions(caps, exp.clkrc);
       } else {
-        fillGainCeiling(document.getElementById("gainCeiling"), exp.gainCeiling);
+        fillGainCeiling(document.getElementById("gainCeiling"), exp.gainCeiling, null);
       }
       document.getElementById("expEstHint").textContent =
         "Estimated frame time: ~" + (exp.estimatedFrameMs != null ? exp.estimatedFrameMs : "—") + " ms";

@@ -103,6 +103,12 @@ void kerryCamExposureFillJson(JsonDocument &doc) {
   caps["supportsDummyLines"] = known && kerryOv2640Is(pid);
   caps["agcGainMax"] = 30;
   caps["gainCeilingMax"] = (int)GAINCEILING_128X;
+  int gainDefault = -1;
+  if (known) {
+    if (kerryOv2640Is(pid)) gainDefault = (int)GAINCEILING_16X;
+    else if (pid == OV5640_PID) gainDefault = (int)GAINCEILING_8X;
+  }
+  caps["gainCeilingDefault"] = gainDefault;
 
   JsonArray clkrcOpts = caps["clkrcOptions"].to<JsonArray>();
   if (caps["supportsClkrc"].as<bool>()) {
