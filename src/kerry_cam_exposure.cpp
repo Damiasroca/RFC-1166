@@ -111,50 +111,67 @@ void kerryCamExposureFillJson(JsonDocument &doc) {
 const char *kerryCamExposureUpdate(JsonObjectConst exp) {
   if (exp.isNull()) return nullptr;
 
-  if (exp["aecOn"].is<bool>()) g_cfg.aecOn = exp["aecOn"].as<bool>();
-  if (exp["aec2On"].is<bool>()) g_cfg.aec2On = exp["aec2On"].as<bool>();
-  if (exp["agcOn"].is<bool>()) g_cfg.agcOn = exp["agcOn"].as<bool>();
+  kerry_cam_exp_cfg_t staged = g_cfg;
+  const char *err = nullptr;
+  if (exp["aecOn"].is<bool>()) staged.aecOn = exp["aecOn"].as<bool>();
+  if (exp["aec2On"].is<bool>()) staged.aec2On = exp["aec2On"].as<bool>();
+  if (exp["agcOn"].is<bool>()) staged.agcOn = exp["agcOn"].as<bool>();
 
   sensor_t *s = esp_camera_sensor_get();
   uint16_t pid = s ? s->id.PID : OV2640_PID;
 
   if (exp["aecValue"].is<int>()) {
     int v = exp["aecValue"].as<int>();
-    if (v < 0) return "aecValue out of range";
-    uint16_t mx = kerryCamExposureAecValueMax(pid);
-    if ((uint16_t)v > mx) return "aecValue out of range";
-    g_cfg.aecValue = (uint16_t)v;
+    if (v < 0 || v > 65535) {
+      if (!err) err = "aecValue out of range";
+    } else {
+      staged.aecValue = (uint16_t)v;
+    }
   }
   if (exp["aeLevel"].is<int>()) {
     int v = exp["aeLevel"].as<int>();
-    if (v < kerryCamExposureAeLevelMin(pid) || v > kerryCamExposureAeLevelMax(pid)) return "aeLevel out of range";
-    g_cfg.aeLevel = (int8_t)v;
+    if (v < -128 || v > 127) {
+      if (!err) err = "aeLevel out of range";
+    } else {
+      staged.aeLevel = (int8_t)v;
+    }
   }
   if (exp["agcGain"].is<int>()) {
     int v = exp["agcGain"].as<int>();
-    if (v < 0 || v > 30) return "agcGain out of range";
-    g_cfg.agcGain = (uint8_t)v;
+    if (v < 0 || v > 255) {
+      if (!err) err = "agcGain out of range";
+    } else {
+      staged.agcGain = (uint8_t)v;
+    }
   }
   if (exp["gainCeiling"].is<int>()) {
     int v = exp["gainCeiling"].as<int>();
-    if (v != (int)KERRY_EXP_GAIN_CEIL_SENTINEL && (v < 0 || v > (int)GAINCEILING_128X))
-      return "gainCeiling out of range";
-    g_cfg.gainCeiling = (uint8_t)v;
+    if (v < 0 || v > 255) {
+      if (!err) err = "gainCeiling out of range";
+    } else {
+      staged.gainCeiling = (uint8_t)v;
+    }
   }
   if (exp["clkrc"].is<int>()) {
     int v = exp["clkrc"].as<int>();
-    if (v < 0 || v > 255) return "clkrc out of range";
-    if (!kerryCamExposureClkrcAllowed((uint8_t)v)) return "clkrc not allowed";
-    g_cfg.clkrc = (uint8_t)v;
+    if (v < 0 || v > 255) {
+      if (!err) err = "clkrc out of range";
+    } else {
+      staged.clkrc = (uint8_t)v;
+    }
   }
   if (exp["dummyLines"].is<int>()) {
     int v = exp["dummyLines"].as<int>();
-    if (v < 0 || v > 512) return "dummyLines out of range";
-    g_cfg.dummyLines = (uint16_t)v;
+    if (v < 0 || v > 65535) {
+      if (!err) err = "dummyLines out of range";
+    } else {
+      staged.dummyLines = (uint16_t)v;
+    }
   }
 
-  if (kerryCamExposureEstimatedMs() > 10000) return "Exposure timing too long; reduce manual exposure or dummy lines";
-
+  if (!err) err = kerryCamExposureCfgValidate(&staged, pid);
+  if (err) return err;
+  g_cfg = staged;
   kerryCamExposureSave();
   return nullptr;
 }
@@ -212,19 +229,7 @@ const char *kerryCamExposureApply(bool discardFramesAfter) {
   return nullptr;
 }
 
-uint32_t kerryCamExposureEstimatedMs() {
-  uint32_t ms = 120;
-  if (!g_cfg.aecOn) {
-    ms = 80 + ((uint32_t)g_cfg.aecValue * 2500UL) / 1200UL;
-  } else if (g_cfg.aec2On) {
-    ms = 350;
-  }
-  if (g_cfg.clkrc == 0xC0) ms = (ms * 3) / 2;
-  else if (g_cfg.clkrc == 0xE0) ms *= 2;
-  if (g_cfg.dummyLines > 0) ms += (uint32_t)g_cfg.dummyLines / 2;
-  if (ms > 10000) ms = 10000;
-  return ms;
-}
+uint32_t kerryCamExposureEstimatedMs() { return kerryCamExposureEstimateMs(&g_cfg); }
 
 bool kerryCamExposureNeedsLenientWdt() { return kerryCamExposureEstimatedMs() > 4000; }
 

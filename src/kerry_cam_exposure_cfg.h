@@ -23,3 +23,6 @@ int kerryCamExposureAeLevelMin(uint16_t pid);
 int kerryCamExposureAeLevelMax(uint16_t pid);
 uint16_t kerryCamExposureAecValueMax(uint16_t pid);
 bool kerryCamExposureClkrcAllowed(uint8_t v);
+
+uint32_t kerryCamExposureEstimateMs(const kerry_cam_exp_cfg_t *cfg);
+const char *kerryCamExposureCfgValidate(const kerry_cam_exp_cfg_t *cfg, uint16_t pid);

@@ -33,3 +33,30 @@ uint16_t kerryCamExposureAecValueMax(uint16_t pid) { return kerryOv2640Is(pid) ?
 bool kerryCamExposureClkrcAllowed(uint8_t v) {
   return v == KERRY_EXP_CLKRC_SENTINEL || v == 0x80 || v == 0xC0 || v == 0xE0;
 }
+
+uint32_t kerryCamExposureEstimateMs(const kerry_cam_exp_cfg_t *cfg) {
+  uint32_t ms = 120;
+  if (!cfg->aecOn) {
+    ms = 80 + ((uint32_t)cfg->aecValue * 2500UL) / 1200UL;
+  } else if (cfg->aec2On) {
+    ms = 350;
+  }
+  if (cfg->clkrc == 0xC0) ms = (ms * 3) / 2;
+  else if (cfg->clkrc == 0xE0) ms *= 2;
+  if (cfg->dummyLines > 0) ms += (uint32_t)cfg->dummyLines / 2;
+  return ms;
+}
+
+const char *kerryCamExposureCfgValidate(const kerry_cam_exp_cfg_t *cfg, uint16_t pid) {
+  if (cfg->aecValue > kerryCamExposureAecValueMax(pid)) return "aecValue out of range";
+  if (cfg->aeLevel < kerryCamExposureAeLevelMin(pid) || cfg->aeLevel > kerryCamExposureAeLevelMax(pid))
+    return "aeLevel out of range";
+  if (cfg->agcGain > 30) return "agcGain out of range";
+  if (cfg->gainCeiling != KERRY_EXP_GAIN_CEIL_SENTINEL && cfg->gainCeiling > GAINCEILING_128X)
+    return "gainCeiling out of range";
+  if (!kerryCamExposureClkrcAllowed(cfg->clkrc)) return "clkrc not allowed";
+  if (cfg->dummyLines > 512) return "dummyLines out of range";
+  if (kerryCamExposureEstimateMs(cfg) > 10000)
+    return "Exposure timing too long; reduce manual exposure or dummy lines";
+  return nullptr;
+}
