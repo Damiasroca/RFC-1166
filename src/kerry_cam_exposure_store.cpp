@@ -121,7 +121,6 @@ void kerryCamExposureActivateStaged() {
 
 bool kerryCamExposurePersistStaged() {
   kerry_cam_exp_cfg_t toSave;
-  bool doSave = false;
   xSemaphoreTake(g_storeMu, portMAX_DELAY);
   if (!g_hasStaged) {
     xSemaphoreGive(g_storeMu);
@@ -130,7 +129,6 @@ bool kerryCamExposurePersistStaged() {
   if (kerryCamExposureCfgEqual(&g_cfg, &g_staged)) {
     toSave = g_cfg;
     g_hasStaged = false;
-    doSave = true;
     xSemaphoreGive(g_storeMu);
     writeNvs(&toSave);
     return true;

@@ -224,7 +224,7 @@ const char *kerryCamExposureApply(bool discardFramesAfter) {
 
   KERRY_LOGI("exposure", "applied aec=%d val=%u aec2=%d ae=%d agc=%d gain=%u ceil=0x%02X clkrc=0x%02X dummy=%u",
              cfg.aecOn ? 1 : 0, (unsigned)cfg.aecValue, cfg.aec2On ? 1 : 0, (int)cfg.aeLevel, cfg.agcOn ? 1 : 0,
-             (unsigned)cfg.agcGain,              (unsigned)cfg.gainCeiling, (unsigned)cfg.clkrc, (unsigned)cfg.dummyLines);
+             (unsigned)cfg.agcGain, (unsigned)cfg.gainCeiling, (unsigned)cfg.clkrc, (unsigned)cfg.dummyLines);
   g_lastApplyErr = nullptr;
   return nullptr;
 }
