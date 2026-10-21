@@ -1,35 +1,25 @@
 #include "kerry_cam_exposure.h"
 
 #include "kerry_cam_exposure_cfg.h"
+#include "kerry_cam_exposure_store.h"
 #include "kerry_cam_ov2640.h"
 #include "kerry_log.h"
 #include "kerry_shared.h"
 
 #include <Arduino.h>
-#include <Preferences.h>
 #include <esp_camera.h>
 
-static kerry_cam_exp_cfg_t g_cfg = kerryCamExposureDefaultCfg();
-static kerry_cam_exp_cfg_t g_staged = kerryCamExposureDefaultCfg();
-static kerry_cam_exp_cfg_t g_prevCfg = kerryCamExposureDefaultCfg();
-static bool g_hasStaged = false;
-static kerry_cam_exp_cfg_t g_lastGood = kerryCamExposureDefaultCfg();
-static bool g_hasLastGood = false;
-static bool g_unverified = false;
-static uint8_t g_captureFailStreak = 0;
-static volatile bool g_revertPending = false;
-
-static void kerryCamExposureSettle();
+static void kerryCamExposureSettle(const kerry_cam_exp_cfg_t *cfg);
 
 static gainceiling_t gainCeilingEnum(uint8_t idx) {
   if (idx > GAINCEILING_128X) idx = GAINCEILING_128X;
   return (gainceiling_t)idx;
 }
 
-static void applyGainCeiling(sensor_t *s, uint16_t pid) {
+static void applyGainCeiling(sensor_t *s, uint16_t pid, const kerry_cam_exp_cfg_t *cfg) {
   if (!s->set_gainceiling) return;
-  if (g_cfg.gainCeiling != KERRY_EXP_GAIN_CEIL_SENTINEL) {
-    s->set_gainceiling(s, gainCeilingEnum(g_cfg.gainCeiling));
+  if (cfg->gainCeiling != KERRY_EXP_GAIN_CEIL_SENTINEL) {
+    s->set_gainceiling(s, gainCeilingEnum(cfg->gainCeiling));
     return;
   }
   if (kerryOv2640Is(pid)) {
@@ -39,69 +29,20 @@ static void applyGainCeiling(sensor_t *s, uint16_t pid) {
   }
 }
 
-void kerryCamExposureLoad() {
-  Preferences prefs;
-  prefs.begin("kerry", true);
-  g_cfg.aecOn = prefs.getBool("exp_aec", true);
-  g_cfg.aecValue = prefs.getUShort("exp_aecv", 600);
-  g_cfg.aec2On = prefs.getBool("exp_aec2", false);
-  g_cfg.aeLevel = prefs.getChar("exp_ael", 0);
-  g_cfg.agcOn = prefs.getBool("exp_agc", true);
-  g_cfg.agcGain = prefs.getUChar("exp_agcg", 15);
-  g_cfg.gainCeiling = prefs.getUChar("exp_gceil", KERRY_EXP_GAIN_CEIL_SENTINEL);
-  g_cfg.clkrc = prefs.getUChar("exp_clkrc", KERRY_EXP_CLKRC_SENTINEL);
-  g_cfg.dummyLines = prefs.getUShort("exp_dummy", 0);
-  prefs.end();
-  uint8_t storedClk = g_cfg.clkrc;
-  uint8_t mappedClk = storedClk;
-  bool migrateClk = true;
-  if (storedClk == 0x81) mappedClk = KERRY_EXP_CLKRC_SENTINEL;
-  else if (storedClk == 0x83) mappedClk = 0x01;
-  else if (storedClk == 0x87) mappedClk = 0x03;
-  else if (storedClk == 0x8F) mappedClk = 0x07;
-  else migrateClk = false;
-  if (migrateClk) {
-    KERRY_LOGW("exposure", "stored clkrc 0x%02X migrated to 0x%02X", (unsigned)storedClk, (unsigned)mappedClk);
-    g_cfg.clkrc = mappedClk;
-    kerryCamExposureSave();
-  } else if (!kerryCamExposureClkrcAllowed(g_cfg.clkrc)) {
-    KERRY_LOGW("exposure", "stored clkrc 0x%02X is not valid, using driver default", (unsigned)g_cfg.clkrc);
-    g_cfg.clkrc = KERRY_EXP_CLKRC_SENTINEL;
-    kerryCamExposureSave();
-  }
-  g_lastGood = kerryCamExposureDefaultCfg();
-  g_hasLastGood = true;
-  g_unverified = false;
-  KERRY_LOGI("exposure", "loaded aec=%d agc=%d clkrc=0x%02X dummy=%u", g_cfg.aecOn ? 1 : 0, g_cfg.agcOn ? 1 : 0,
-             (unsigned)g_cfg.clkrc, (unsigned)g_cfg.dummyLines);
-}
-
-void kerryCamExposureSave() {
-  Preferences prefs;
-  prefs.begin("kerry", false);
-  prefs.putBool("exp_aec", g_cfg.aecOn);
-  prefs.putUShort("exp_aecv", g_cfg.aecValue);
-  prefs.putBool("exp_aec2", g_cfg.aec2On);
-  prefs.putChar("exp_ael", g_cfg.aeLevel);
-  prefs.putBool("exp_agc", g_cfg.agcOn);
-  prefs.putUChar("exp_agcg", g_cfg.agcGain);
-  prefs.putUChar("exp_gceil", g_cfg.gainCeiling);
-  prefs.putUChar("exp_clkrc", g_cfg.clkrc);
-  prefs.putUShort("exp_dummy", g_cfg.dummyLines);
-  prefs.end();
-}
-
 void kerryCamExposureFillJson(JsonDocument &doc) {
+  kerry_cam_exp_cfg_t cfg;
+  kerryCamExpStoreGet(&cfg);
+
   JsonObject exp = doc["exposure"].to<JsonObject>();
-  exp["aecOn"] = g_cfg.aecOn;
-  exp["aecValue"] = g_cfg.aecValue;
-  exp["aec2On"] = g_cfg.aec2On;
-  exp["aeLevel"] = g_cfg.aeLevel;
-  exp["agcOn"] = g_cfg.agcOn;
-  exp["agcGain"] = g_cfg.agcGain;
-  exp["gainCeiling"] = g_cfg.gainCeiling;
-  exp["clkrc"] = g_cfg.clkrc;
-  exp["dummyLines"] = g_cfg.dummyLines;
+  exp["aecOn"] = cfg.aecOn;
+  exp["aecValue"] = cfg.aecValue;
+  exp["aec2On"] = cfg.aec2On;
+  exp["aeLevel"] = cfg.aeLevel;
+  exp["agcOn"] = cfg.agcOn;
+  exp["agcGain"] = cfg.agcGain;
+  exp["gainCeiling"] = cfg.gainCeiling;
+  exp["clkrc"] = cfg.clkrc;
+  exp["dummyLines"] = cfg.dummyLines;
   exp["estimatedFrameMs"] = kerryCamExposureEstimatedMs();
   exp["measuredFrameMs"] = kerryCamExposureMeasuredMs();
 
@@ -110,7 +51,7 @@ void kerryCamExposureFillJson(JsonDocument &doc) {
   uint16_t pid = s ? s->id.PID : 0;
   bool known = kerryCameraReady() && s;
   framesize_t fs = s ? s->status.framesize : FRAMESIZE_SVGA;
-  caps["aecMax"] = known ? kerryCamExposureAecValueMax(&g_cfg, pid, fs) : 1200;
+  caps["aecMax"] = known ? kerryCamExposureAecValueMax(&cfg, pid, fs) : 1200;
   if (known && kerryOv2640Is(pid)) caps["aecBaseLines"] = kerryOv2640BaseFrameLines(fs);
   caps["aeLevelMin"] = known ? kerryCamExposureAeLevelMin(pid) : -5;
   caps["aeLevelMax"] = known ? kerryCamExposureAeLevelMax(pid) : 5;
@@ -145,7 +86,8 @@ void kerryCamExposureFillJson(JsonDocument &doc) {
 const char *kerryCamExposureStage(JsonObjectConst exp, framesize_t targetFs) {
   if (exp.isNull()) return nullptr;
 
-  kerry_cam_exp_cfg_t staged = g_cfg;
+  kerry_cam_exp_cfg_t staged;
+  kerryCamExpStoreGet(&staged);
   const char *err = nullptr;
   if (exp["aecOn"].is<bool>()) staged.aecOn = exp["aecOn"].as<bool>();
   if (exp["aec2On"].is<bool>()) staged.aec2On = exp["aec2On"].as<bool>();
@@ -205,51 +147,35 @@ const char *kerryCamExposureStage(JsonObjectConst exp, framesize_t targetFs) {
 
   if (!err) err = kerryCamExposureCfgValidate(&staged, pid, targetFs);
   if (err) return err;
-  g_staged = staged;
-  g_hasStaged = true;
+  kerryCamExpStoreSetStaged(&staged);
   return nullptr;
 }
 
-void kerryCamExposureActivateStaged() {
-  if (!g_hasStaged) return;
-  g_prevCfg = g_cfg;
-  g_cfg = g_staged;
-}
-
-void kerryCamExposurePersistStaged() {
-  if (!g_hasStaged) return;
-  kerryCamExposureSave();
-  g_hasStaged = false;
-}
-
-void kerryCamExposureRollbackStaged() {
-  if (!g_hasStaged) return;
-  g_cfg = g_prevCfg;
-  g_hasStaged = false;
-}
-
 const char *kerryCamExposureApply(bool discardFramesAfter) {
+  kerry_cam_exp_cfg_t cfg;
+  kerryCamExpStoreGet(&cfg);
+
   sensor_t *s = esp_camera_sensor_get();
   if (!s || !kerryCameraReady()) return "Camera not ready";
 
   uint16_t pid = s->id.PID;
 
   if (kerryOv2640Is(pid)) {
-    const char *timingErr = kerryOv2640ApplyTiming(s, g_cfg.clkrc, g_cfg.dummyLines);
+    const char *timingErr = kerryOv2640ApplyTiming(s, cfg.clkrc, cfg.dummyLines);
     if (timingErr) {
       KERRY_LOGW("exposure", "%s", timingErr);
       return timingErr;
     }
   }
 
-  if (g_cfg.aecOn) {
+  if (cfg.aecOn) {
     if (s->set_exposure_ctrl) s->set_exposure_ctrl(s, 1);
-    if (s->set_aec2) s->set_aec2(s, g_cfg.aec2On ? 1 : 0);
-    if (s->set_ae_level) s->set_ae_level(s, g_cfg.aeLevel);
+    if (s->set_aec2) s->set_aec2(s, cfg.aec2On ? 1 : 0);
+    if (s->set_ae_level) s->set_ae_level(s, cfg.aeLevel);
   } else {
     if (s->set_exposure_ctrl) s->set_exposure_ctrl(s, 0);
-    int v = g_cfg.aecValue;
-    uint16_t mx = kerryCamExposureAecValueMax(&g_cfg, pid, s->status.framesize);
+    int v = cfg.aecValue;
+    uint16_t mx = kerryCamExposureAecValueMax(&cfg, pid, s->status.framesize);
     if (v > (int)mx) v = (int)mx;
     if (kerryOv2640Is(pid)) {
       if (kerryOv2640SetAecValue(s, v) != 0) {
@@ -262,12 +188,12 @@ const char *kerryCamExposureApply(bool discardFramesAfter) {
     }
   }
 
-  if (g_cfg.agcOn) {
+  if (cfg.agcOn) {
     if (s->set_gain_ctrl) s->set_gain_ctrl(s, 1);
-    applyGainCeiling(s, pid);
+    applyGainCeiling(s, pid, &cfg);
   } else {
     if (s->set_gain_ctrl) s->set_gain_ctrl(s, 0);
-    if (s->set_agc_gain) s->set_agc_gain(s, g_cfg.agcGain);
+    if (s->set_agc_gain) s->set_agc_gain(s, cfg.agcGain);
   }
 
   if (pid == OV5640_PID) {
@@ -275,23 +201,23 @@ const char *kerryCamExposureApply(bool discardFramesAfter) {
     if (s->set_quality) s->set_quality(s, 12);
   }
 
-  if (discardFramesAfter) kerryCamExposureSettle();
+  if (discardFramesAfter) kerryCamExposureSettle(&cfg);
 
-  g_unverified = true;
-  g_captureFailStreak = 0;
+  kerryCamExpStoreMarkApplied();
 
   KERRY_LOGI("exposure", "applied aec=%d val=%u aec2=%d ae=%d agc=%d gain=%u ceil=0x%02X clkrc=0x%02X dummy=%u",
-             g_cfg.aecOn ? 1 : 0, (unsigned)g_cfg.aecValue, g_cfg.aec2On ? 1 : 0, (int)g_cfg.aeLevel,
-             g_cfg.agcOn ? 1 : 0, (unsigned)g_cfg.agcGain, (unsigned)g_cfg.gainCeiling, (unsigned)g_cfg.clkrc,
-             (unsigned)g_cfg.dummyLines);
+             cfg.aecOn ? 1 : 0, (unsigned)cfg.aecValue, cfg.aec2On ? 1 : 0, (int)cfg.aeLevel, cfg.agcOn ? 1 : 0,
+             (unsigned)cfg.agcGain, (unsigned)cfg.gainCeiling, (unsigned)cfg.clkrc, (unsigned)cfg.dummyLines);
   return nullptr;
 }
 
 uint32_t kerryCamExposureEstimatedMs() {
+  kerry_cam_exp_cfg_t cfg;
+  kerryCamExpStoreGet(&cfg);
   sensor_t *s = esp_camera_sensor_get();
   uint16_t pid = s ? s->id.PID : OV2640_PID;
   framesize_t fs = s ? s->status.framesize : FRAMESIZE_SVGA;
-  return kerryCamExposureEstimateMs(&g_cfg, pid, fs);
+  return kerryCamExposureEstimateMs(&cfg, pid, fs);
 }
 
 uint32_t kerryCamExposureFrameMs() {
@@ -300,9 +226,9 @@ uint32_t kerryCamExposureFrameMs() {
   return kerryCamExposureEstimatedMs();
 }
 
-static void kerryCamExposureSettle() {
+static void kerryCamExposureSettle(const kerry_cam_exp_cfg_t *cfg) {
   kerryWdtLenient();
-  bool manual = !g_cfg.aecOn && !g_cfg.agcOn;
+  bool manual = !cfg->aecOn && !cfg->agcOn;
   uint32_t timeCap = kerryCamExposureBudgetMs() * 3UL;
   const int frameCap = 10;
   int minFrames = manual ? 2 : 3;
@@ -311,7 +237,7 @@ static void kerryCamExposureSettle() {
   uint32_t freshTs[10];
   int fresh = 0;
   int attempts = 0;
-  kerryCamExposureNoteMeasured(0, &g_cfg, 0, FRAMESIZE_SVGA);
+  kerryCamExposureNoteMeasured(0, cfg, 0, FRAMESIZE_SVGA);
   while (fresh < frameCap && attempts < frameCap && (uint32_t)(millis() - started) < timeCap) {
     uint32_t ts = 0;
     int n = kerryCamDiscardFrames(1, &ts, 1);
@@ -329,34 +255,13 @@ static void kerryCamExposureSettle() {
   sensor_t *s = esp_camera_sensor_get();
   uint16_t pid = s ? s->id.PID : 0;
   framesize_t fs = s ? s->status.framesize : FRAMESIZE_SVGA;
-  kerryCamExposureNoteMeasured(newer - older, &g_cfg, pid, fs);
+  kerryCamExposureNoteMeasured(newer - older, cfg, pid, fs);
   KERRY_LOGD("exposure", "measured frame period %ums", (unsigned)(newer - older));
 }
 
-void kerryCamExposureNoteCaptureOk() {
-  if (g_unverified) {
-    g_lastGood = g_cfg;
-    g_hasLastGood = true;
-    g_unverified = false;
-  }
-  g_captureFailStreak = 0;
-}
-
-void kerryCamExposureNoteCaptureFail() {
-  if (g_captureFailStreak < 255) g_captureFailStreak++;
-  if (g_captureFailStreak < 2 || !g_unverified || !g_hasLastGood) return;
-  if (kerryCamExposureCfgEqual(&g_cfg, &g_lastGood)) return;
-  KERRY_LOGW("exposure", "capture failed twice, scheduling exposure revert");
-  g_cfg = g_lastGood;
-  kerryCamExposureSave();
-  g_revertPending = true;
-}
-
-bool kerryCamExposureRevertPending() { return g_revertPending; }
-
 void kerryCamExposureServiceRevert() {
-  if (!g_revertPending || !kerryCameraReady()) return;
-  g_revertPending = false;
+  if (!kerryCamExposureRevertPending() || !kerryCameraReady()) return;
+  kerryCamExpStoreClearRevertPending();
   const char *err = kerryCamExposureApply(true);
   if (err) KERRY_LOGW("exposure", "revert apply failed: %s", err);
   else KERRY_LOGI("exposure", "reverted to last good settings");

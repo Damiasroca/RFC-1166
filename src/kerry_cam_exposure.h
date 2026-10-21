@@ -4,28 +4,16 @@
 #include <esp_camera.h>
 #include <stdint.h>
 
-#define KERRY_EXP_GAIN_CEIL_SENTINEL 0xFF
-#define KERRY_EXP_CLKRC_SENTINEL 0xFF
-
-void kerryCamExposureLoad();
-void kerryCamExposureSave();
+#include "kerry_cam_exposure_cfg.h"
+#include "kerry_cam_exposure_store.h"
 
 void kerryCamExposureFillJson(JsonDocument &doc);
 const char *kerryCamExposureStage(JsonObjectConst exp, framesize_t targetFs);
-void kerryCamExposureActivateStaged();
-void kerryCamExposurePersistStaged();
-void kerryCamExposureRollbackStaged();
-
 // Apply NVS settings to the sensor. Caller must hold camLock. cameraReady required.
 const char *kerryCamExposureApply(bool discardFrames);
 
 uint32_t kerryCamExposureEstimatedMs();
 uint32_t kerryCamExposureFrameMs();
-
-void kerryCamExposureNoteCaptureOk();
-void kerryCamExposureNoteCaptureFail();
-
-bool kerryCamExposureRevertPending();
 
 // Caller must hold camLock.
 void kerryCamExposureServiceRevert();

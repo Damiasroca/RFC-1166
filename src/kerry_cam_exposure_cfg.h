@@ -4,7 +4,8 @@
 
 #include <esp_camera.h>
 
-#include "kerry_cam_exposure.h"
+#define KERRY_EXP_GAIN_CEIL_SENTINEL 0xFF
+#define KERRY_EXP_CLKRC_SENTINEL 0xFF
 
 typedef struct {
   bool aecOn;
