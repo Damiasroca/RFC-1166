@@ -66,6 +66,30 @@ static void addCounts(kerry_stats_counts_t *dst, const kerry_stats_counts_t *src
   dst->wdHeld += src->wdHeld;
 }
 
+static void subCounts(kerry_stats_counts_t *dst, const kerry_stats_counts_t *src) {
+  dst->upAttempts -= src->upAttempts;
+  dst->upOk -= src->upOk;
+  dst->upSkippedNet -= src->upSkippedNet;
+  dst->upCaptureFail -= src->upCaptureFail;
+  dst->upOom -= src->upOom;
+  dst->upHttp4xx -= src->upHttp4xx;
+  dst->upHttp5xx -= src->upHttp5xx;
+  dst->upHttpOther -= src->upHttpOther;
+  dst->upNoConn -= src->upNoConn;
+  dst->ecoAttempts -= src->ecoAttempts;
+  dst->ecoOk -= src->ecoOk;
+  dst->ecoFail -= src->ecoFail;
+  dst->camFail -= src->camFail;
+  dst->camReinit -= src->camReinit;
+  dst->wdReboots -= src->wdReboots;
+  dst->wdHeld -= src->wdHeld;
+}
+
+static bool countsIsZero(const kerry_stats_counts_t *c) {
+  kerry_stats_counts_t z = {};
+  return memcmp(c, &z, sizeof z) == 0;
+}
+
 static bool nvsWriteOk() {
   nvs_stats_t st;
   if (nvs_get_stats(nullptr, &st) != ESP_OK) return true;
@@ -80,16 +104,18 @@ static void loadLifetime() {
   prefs.end();
 }
 
-static void saveLifetimeNvs() {
+static bool saveLifetimeNvs(const kerry_stats_counts_t *life) {
+  if (!life) return false;
   if (!nvsWriteOk()) {
     if (kerry_log_every_ms("kstats_nvs_low", 60000)) KERRY_LOGW("kstats", "NVS low, skipping lifetime save");
-    return;
+    return false;
   }
   Preferences prefs;
-  if (!prefs.begin(KSTATS_NS, false)) return;
+  if (!prefs.begin(KSTATS_NS, false)) return false;
   prefs.putUChar("ver", KSTATS_VER);
-  prefs.putBytes("life", &s_lifetime, sizeof s_lifetime);
+  size_t n = prefs.putBytes("life", life, sizeof *life);
   prefs.end();
+  return n == sizeof *life;
 }
 
 static void loadFailsBlob() {
@@ -233,8 +259,9 @@ void kerryStatsBoot(bool mergePrevSession) {
   if (mergePrevSession) {
     const kerry_pm_rtc_t *prev = kerryPmPrevious();
     if (prev) {
-      addCounts(&s_lifetime, &prev->stats.counts);
-      saveLifetimeNvs();
+      kerry_stats_counts_t merged = s_lifetime;
+      addCounts(&merged, &prev->stats.counts);
+      if (saveLifetimeNvs(&merged)) s_lifetime = merged;
     }
   }
   kerry_stats_session_t *sess = kerryStatsSessionPtr();
@@ -278,17 +305,28 @@ void kerryStatsNote(kerry_stat_event_t ev, const char *detail, int code) {
 void kerryStatsFlush() {
   kerry_stats_session_t *sess = kerryStatsSessionPtr();
   if (!sess) return;
+  kerry_stats_counts_t delta = {};
+  kerry_stats_counts_t candidate = {};
   bool dirty = false;
   portENTER_CRITICAL(&s_statsMux);
   dirty = s_dirty;
   if (s_dirty) {
-    addCounts(&s_lifetime, &sess->counts);
-    memset(&sess->counts, 0, sizeof sess->counts);
-    s_dirty = false;
+    delta = sess->counts;
+    candidate = s_lifetime;
+    addCounts(&candidate, &delta);
   }
   portEXIT_CRITICAL(&s_statsMux);
   if (!dirty && !s_failsDirty) return;
-  if (dirty) saveLifetimeNvs();
+  if (dirty) {
+    bool ok = saveLifetimeNvs(&candidate);
+    if (ok) {
+      portENTER_CRITICAL(&s_statsMux);
+      subCounts(&sess->counts, &delta);
+      s_lifetime = candidate;
+      if (countsIsZero(&sess->counts)) s_dirty = false;
+      portEXIT_CRITICAL(&s_statsMux);
+    }
+  }
   saveFailsBlob();
 }
 
@@ -300,7 +338,8 @@ const char *kerryStatsReset() {
   s_failCount = 0;
   kerry_stats_session_t *sess = kerryStatsSessionPtr();
   if (sess) memset(sess, 0, sizeof *sess);
-  saveLifetimeNvs();
+  kerry_stats_counts_t zero = {};
+  saveLifetimeNvs(&zero);
   s_failsDirty = true;
   saveFailsBlob();
   portENTER_CRITICAL(&s_statsMux);

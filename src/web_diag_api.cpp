@@ -69,15 +69,44 @@ static esp_err_t apiStatsPost(httpd_req_t *req) {
   return sendJson(req, out);
 }
 
-static esp_err_t flushChunk(httpd_req_t *req, const char *buf, size_t n) {
-  if (!n) return ESP_OK;
-  return httpd_resp_send_chunk(req, buf, n);
+typedef struct {
+  httpd_req_t *req;
+  char buf[1024];
+  size_t used;
+  esp_err_t err;
+} kerry_resp_writer_t;
+
+static void rwFlush(kerry_resp_writer_t *w) {
+  if (!w || w->err != ESP_OK || !w->used) return;
+  w->err = httpd_resp_send_chunk(w->req, w->buf, w->used);
+  w->used = 0;
 }
 
-static esp_err_t sendJsonString(httpd_req_t *req, const char *s, size_t n) {
-  char batch[256];
-  size_t bi = 0;
-  if (httpd_resp_sendstr_chunk(req, "\"") != ESP_OK) return ESP_FAIL;
+static esp_err_t rwPut(kerry_resp_writer_t *w, const void *data, size_t n) {
+  if (!w || w->err != ESP_OK) return w ? w->err : ESP_FAIL;
+  const char *p = (const char *)data;
+  while (n) {
+    size_t room = sizeof w->buf - w->used;
+    if (!room) {
+      rwFlush(w);
+      if (w->err != ESP_OK) return w->err;
+      room = sizeof w->buf;
+    }
+    size_t take = n < room ? n : room;
+    memcpy(w->buf + w->used, p, take);
+    w->used += take;
+    p += take;
+    n -= take;
+  }
+  return ESP_OK;
+}
+
+static esp_err_t rwPutStr(kerry_resp_writer_t *w, const char *s) {
+  return rwPut(w, s, strlen(s));
+}
+
+static esp_err_t rwPutJsonString(kerry_resp_writer_t *w, const char *s, size_t n) {
+  if (rwPutStr(w, "\"") != ESP_OK) return w->err;
   for (size_t i = 0; i < n; i++) {
     char c = s[i];
     const char *esc = nullptr;
@@ -89,23 +118,19 @@ static esp_err_t sendJsonString(httpd_req_t *req, const char *s, size_t n) {
       esc = ubuf;
     }
     if (esc) {
-      size_t el = strlen(esc);
-      if (bi + el >= sizeof batch) {
-        if (flushChunk(req, batch, bi) != ESP_OK) return ESP_FAIL;
-        bi = 0;
-      }
-      memcpy(batch + bi, esc, el);
-      bi += el;
+      if (rwPutStr(w, esc) != ESP_OK) return w->err;
     } else {
-      if (bi + 1 >= sizeof batch) {
-        if (flushChunk(req, batch, bi) != ESP_OK) return ESP_FAIL;
-        bi = 0;
-      }
-      batch[bi++] = c;
+      if (rwPut(w, &c, 1) != ESP_OK) return w->err;
     }
   }
-  if (bi && flushChunk(req, batch, bi) != ESP_OK) return ESP_FAIL;
-  return httpd_resp_sendstr_chunk(req, "\"");
+  return rwPutStr(w, "\"");
+}
+
+static esp_err_t rwFinish(kerry_resp_writer_t *w) {
+  if (!w || w->err != ESP_OK) return w ? w->err : ESP_FAIL;
+  rwFlush(w);
+  if (w->err != ESP_OK) return w->err;
+  return httpd_resp_send_chunk(w->req, nullptr, 0);
 }
 
 static esp_err_t apiLogGet(httpd_req_t *req) {
@@ -130,32 +155,33 @@ static esp_err_t apiLogGet(httpd_req_t *req) {
   bool truncated = false;
   size_t n = kerryLogHistoryRead(since, buf, cap, &lastSeq, &truncated);
   httpd_resp_set_type(req, "application/json");
-  if (httpd_resp_sendstr_chunk(req, "{\"lines\":[") != ESP_OK) {
+  kerry_resp_writer_t w = {.req = req, .used = 0, .err = ESP_OK};
+  if (rwPutStr(&w, "{\"lines\":[") != ESP_OK) {
     free(buf);
-    return ESP_FAIL;
+    return w.err;
   }
   bool first = true;
   const char *p = buf;
   while (p < buf + n) {
     const char *nl = (const char *)memchr(p, '\n', (size_t)(buf + n - p));
     if (!nl) break;
-    if (!first && httpd_resp_sendstr_chunk(req, ",") != ESP_OK) {
+    if (!first && rwPutStr(&w, ",") != ESP_OK) {
       free(buf);
-      return ESP_FAIL;
+      return w.err;
     }
     first = false;
-    if (sendJsonString(req, p, (size_t)(nl - p)) != ESP_OK) {
+    if (rwPutJsonString(&w, p, (size_t)(nl - p)) != ESP_OK) {
       free(buf);
-      return ESP_FAIL;
+      return w.err;
     }
     p = nl + 1;
   }
   char tail[64];
   snprintf(tail, sizeof tail, "],\"lastSeq\":%lu,\"truncated\":%s}", (unsigned long)lastSeq, truncated ? "true" : "false");
-  esp_err_t err = httpd_resp_sendstr_chunk(req, tail);
-  if (err == ESP_OK) err = httpd_resp_sendstr_chunk(req, nullptr);
+  rwPutStr(&w, tail);
+  rwFinish(&w);
   free(buf);
-  return err;
+  return w.err;
 }
 
 void kerryWebDiagApiRegister(httpd_handle_t server) {

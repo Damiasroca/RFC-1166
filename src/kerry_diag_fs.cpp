@@ -64,19 +64,48 @@ bool kerryDiagFsReady() { return s_mounted; }
 
 const char *kerryDiagStorageLabel() { return s_mounted ? "littlefs" : "unavailable"; }
 
-static bool writeAtomic(const char *finalPath, const void *data, size_t len) {
+uint32_t kerryDiagMaxReportSeq() {
+  uint32_t maxSeq = 0;
+  if (!s_mounted) return 0;
+  DIR *d = opendir(DIAG_DIR);
+  if (!d) return 0;
+  struct dirent *ent;
+  while ((ent = readdir(d)) != nullptr) {
+    if (strncmp(ent->d_name, "rpt_", 4) != 0) continue;
+    uint32_t seq = (uint32_t)strtoul(ent->d_name + 4, nullptr, 10);
+    if (seq > maxSeq) maxSeq = seq;
+  }
+  closedir(d);
+  return maxSeq;
+}
+
+static bool writeAtomic(const char *finalPath, const void *hdr, size_t hdrLen, const void *data, size_t len) {
   char tmp[64];
   snprintf(tmp, sizeof tmp, "%s.tmp", finalPath);
   FILE *f = fopen(tmp, "wb");
   if (!f) return false;
-  size_t w = fwrite(data, 1, len, f);
+  if (hdrLen) {
+    size_t w = fwrite(hdr, 1, hdrLen, f);
+    if (w != hdrLen) {
+      fclose(f);
+      remove(tmp);
+      return false;
+    }
+  }
+  if (len) {
+    size_t w = fwrite(data, 1, len, f);
+    if (w != len) {
+      fclose(f);
+      remove(tmp);
+      return false;
+    }
+  }
   fclose(f);
-  if (w != len) {
+  if (rename(tmp, finalPath) != 0) {
     remove(tmp);
     return false;
   }
-  remove(finalPath);
-  return rename(tmp, finalPath) == 0;
+  return true;
 }
 
 static void pruneReports() {
@@ -141,21 +170,22 @@ static void ramStore(uint32_t bootSeq, const char *json, size_t len) {
   s_ramSeq[(size_t)slot] = bootSeq;
 }
 
-void kerryDiagStoreReport(uint32_t bootSeq, const char *json, size_t len) {
-  if (!json || !len) return;
+bool kerryDiagStoreReport(uint32_t bootSeq, const char *json, size_t len) {
+  if (!json || !len) return false;
   if (s_mounted) {
     char path[48];
     snprintf(path, sizeof path, DIAG_DIR "/rpt_%lu.json", (unsigned long)bootSeq);
-    if (writeAtomic(path, json, len)) {
+    if (writeAtomic(path, nullptr, 0, json, len)) {
       pruneReports();
-      return;
+      return true;
     }
   }
   ramStore(bootSeq, json, len);
+  return false;
 }
 
-void kerryDiagUpdateReport(uint32_t bootSeq, const char *json, size_t len) {
-  kerryDiagStoreReport(bootSeq, json, len);
+bool kerryDiagUpdateReport(uint32_t bootSeq, const char *json, size_t len) {
+  return kerryDiagStoreReport(bootSeq, json, len);
 }
 
 void kerryDiagListReports(JsonArray out) {
@@ -260,9 +290,6 @@ bool kerryDiagLoadFails(void *data, size_t len) {
 bool kerryDiagSaveFails(const void *data, size_t len) {
   if (!data || !len) return false;
   if (!s_mounted) return false;
-  uint8_t hdr[1 + 512];
-  if (len + 1 > sizeof hdr) return false;
-  hdr[0] = FAILS_VER;
-  memcpy(hdr + 1, data, len);
-  return writeAtomic(FAILS_PATH, hdr, len + 1);
+  uint8_t ver = FAILS_VER;
+  return writeAtomic(FAILS_PATH, &ver, 1, data, len);
 }

@@ -8,8 +8,9 @@ void kerryDiagFsInit();
 bool kerryDiagFsReady();
 const char *kerryDiagStorageLabel();
 
-void kerryDiagStoreReport(uint32_t bootSeq, const char *json, size_t len);
-void kerryDiagUpdateReport(uint32_t bootSeq, const char *json, size_t len);
+uint32_t kerryDiagMaxReportSeq();
+bool kerryDiagStoreReport(uint32_t bootSeq, const char *json, size_t len);
+bool kerryDiagUpdateReport(uint32_t bootSeq, const char *json, size_t len);
 void kerryDiagListReports(JsonArray out);
 void kerryDiagClearReports();
 

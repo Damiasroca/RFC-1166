@@ -191,8 +191,17 @@ void kerryPmReportsInit() {
       else if (strcmp(cls, "power") == 0) bumpCounter(prefs, "n_power");
       prefs.end();
     }
-  } else if (kerry_log_every_ms("kpm_nvs_low", 60000)) {
-    KERRY_LOGW("kpm", "NVS low, skipping reset counter update");
+  } else {
+    if (kerry_log_every_ms("kpm_nvs_low", 60000)) KERRY_LOGW("kpm", "NVS low, skipping reset counter update");
+    uint32_t nvsSeq = 0;
+    Preferences prefs;
+    if (prefs.begin(KPM_NS, true)) {
+      nvsSeq = prefs.getUInt("bootSeq", 0);
+      prefs.end();
+    }
+    uint32_t fsSeq = kerryDiagMaxReportSeq();
+    s_bootSeq = nvsSeq > fsSeq ? nvsSeq : fsSeq;
+    s_bootSeq++;
   }
 
   JsonDocument doc;
@@ -218,15 +227,15 @@ void kerryPmReportsInit() {
     doc["fwVersion"] = prev->fwVersion;
     appendPrevLines(doc["prevLines"].to<JsonArray>(), prev);
   }
-  appendCoredump(doc.to<JsonObject>(), prev);
+  appendCoredump(doc.as<JsonObject>(), prev);
   truncateLines(doc);
   s_haveCurReport = false;
   size_t n = serializeJson(doc, s_curReport, sizeof s_curReport);
   if (n > 0) {
     s_haveCurReport = true;
-    kerryDiagStoreReport(s_bootSeq, s_curReport, n);
+    bool stored = kerryDiagStoreReport(s_bootSeq, s_curReport, n);
 #if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH && CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF
-    if (s_eraseCoredump) esp_core_dump_image_erase();
+    if (s_eraseCoredump && stored) esp_core_dump_image_erase();
 #endif
   }
 }
