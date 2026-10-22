@@ -210,10 +210,10 @@ void kerryCamTelemetryService(uint32_t now_ms) {
 
   uint8_t *jpeg = nullptr;
   size_t jpegLen = 0;
-  bool haveFrame = kerryCamTelemetryGrabCopy(&jpeg, &jpegLen);
+  bool haveFrame = kerryCamGrabFreshJpegCopy(&jpeg, &jpegLen);
   uint8_t avg = 0, minY = 0, maxY = 0;
   bool haveLuma = haveFrame && luma_from_jpeg(jpeg, jpegLen, &avg, &minY, &maxY);
-  if (jpeg) kerryCamTelemetryFreeCopy(jpeg);
+  if (jpeg) kerryCamFreeJpegCopy(jpeg);
 
   if (haveLuma && haveHw) {
     KERRY_LOGI(TAG, "luma: frame avg=%u min=%u max=%u | sensor avg=%u", (unsigned)avg, (unsigned)minY,

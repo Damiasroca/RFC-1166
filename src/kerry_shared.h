@@ -54,6 +54,8 @@ bool kerryUploadNow(char *message, size_t messageLen);
 void kerryRetryPortal();
 
 bool kerryCaptureUploadJpeg(const char *why, uint8_t **jpeg, size_t *len, char *err, size_t errLen);
+bool kerryCamGrabFreshJpegCopy(uint8_t **jpeg, size_t *len);
+void kerryCamFreeJpegCopy(uint8_t *jpeg);
 bool kerryCaptureBlocked(const char **why);
 bool kerryTryBeginUpload();
 void kerryEndUpload();

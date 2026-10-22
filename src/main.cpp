@@ -1006,14 +1006,16 @@ bool kerryCamReadSensorSnapshot(kerry_cam_sensor_snapshot_t *out) {
   return true;
 }
 
-bool kerryCamTelemetryGrabCopy(uint8_t **jpeg, size_t *len) {
+bool kerryCamGrabFreshJpegCopy(uint8_t **jpeg, size_t *len) {
   if (!jpeg || !len) return false;
   *jpeg = nullptr;
   *len = 0;
   if (!cameraReady) return false;
   if (!lockCam(3000)) return false;
   kerryWdtLenient();
+  dropHeldStaleFrame();
   camera_fb_t *fb = camFbGetHeldLock(false);
+  if (fb) logDeliveredFrameAge("sample", fb);
   if (!fb || fb->format != PIXFORMAT_JPEG || fb->len == 0) {
     if (fb) esp_camera_fb_return(fb);
     kerryWdtRestore();
@@ -1037,7 +1039,7 @@ bool kerryCamTelemetryGrabCopy(uint8_t **jpeg, size_t *len) {
   return true;
 }
 
-void kerryCamTelemetryFreeCopy(uint8_t *jpeg) { free(jpeg); }
+void kerryCamFreeJpegCopy(uint8_t *jpeg) { free(jpeg); }
 
 int kerryCamDiscardFrames(int count, uint32_t *tsMs, int tsCap) {
   if (count <= 0 || !camLockHeld) return 0;
