@@ -8,7 +8,6 @@
 #include <Preferences.h>
 
 #include <math.h>
-#include <string.h>
 
 static const char *TAG = "autosw";
 
@@ -170,7 +169,7 @@ void kerryCamAutoSwitchFillJson(JsonDocument &doc) {
     doc["lastSampleAgeS"] = nullptr;
   }
 
-  doc["available"] = strcmp(kerryCameraSensorName(), "OV2640") == 0;
+  doc["available"] = kerryOv2640Is(kerryCameraSensorPid());
   if (haveScene) {
     JsonObject sceneObj = doc["lastScene"].to<JsonObject>();
     sceneObj["status"] = kerryAutoSceneStatusName(scene.status);

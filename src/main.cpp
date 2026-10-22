@@ -1132,6 +1132,13 @@ const char *kerryCameraSensorName() {
   return cameraSensorName();
 }
 
+uint16_t kerryCameraSensorPid() {
+  if (!cameraReady) return 0;
+  sensor_t *sensor = esp_camera_sensor_get();
+  if (!sensor) return 0;
+  return sensor->id.PID;
+}
+
 static const char *frameSizeLabel(framesize_t size) {
   switch (size) {
     case FRAMESIZE_QVGA:

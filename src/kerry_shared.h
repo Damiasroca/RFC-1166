@@ -34,6 +34,7 @@ int kerryCamDiscardFrames(int count, uint32_t *tsMs = nullptr, int tsCap = 0);
 bool kerryCameraReady();
 bool kerryCamSamplingAllowed();
 const char *kerryCameraSensorName();
+uint16_t kerryCameraSensorPid();
 #define KERRY_SELECTABLE_SIZES_MAX 9
 void kerryImageGet(JsonDocument &doc);
 int kerryImageSelectableSizes(framesize_t *out, int cap);
