@@ -1,5 +1,8 @@
 #pragma once
 
+#include "kerry_cam_luma.h"
+#include "kerry_cam_scene.h"
+
 #include <ArduinoJson.h>
 #include <stdint.h>
 
@@ -20,6 +23,7 @@ typedef enum {
 
 void kerryCamAutoSwitchLoad();
 void kerryCamAutoSwitchService(uint32_t nowMs);
+void kerryCamAutoSwitchNoteScene(uint32_t nowMs, const kerry_luma_t *luma, const kerry_scene_t *scene);
 const char *kerryCamAutoSwitchSaveNight();
 const char *kerryCamAutoSwitchApply(kerry_cam_mode_t mode, bool automatic, float triggerEv);
 const char *kerryCamAutoSwitchSetCfg(const kerry_cam_autoswitch_cfg_t *cfg);

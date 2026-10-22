@@ -4,6 +4,7 @@
 #include "kerry_cam_exposure.h"
 #include "kerry_cam_exposure_cfg.h"
 #include "kerry_cam_exposure_store.h"
+#include "kerry_cam_autoswitch.h"
 #include "kerry_cam_luma.h"
 #include "kerry_cam_ov2640.h"
 #include "kerry_cam_scene.h"
@@ -134,6 +135,7 @@ void kerryCamTelemetryService(uint32_t now_ms) {
   kerry_scene_t scene = {};
   scene.status = KERRY_SCENE_UNAVAILABLE;
   if (haveLuma && haveSnap) kerryCamSceneCompute(&frameLuma, &snap, &cfg, &scene);
+  if (haveLuma) kerryCamAutoSwitchNoteScene(now_ms, &frameLuma, &scene);
   if (scene.status == KERRY_SCENE_OK) {
     KERRY_LOGI(TAG, "scene: ev=%.1f exp=%.1fms gain=x%.2f", scene.ev, scene.exposureMs, scene.gain);
   } else if (scene.status == KERRY_SCENE_CLIPPED_HIGH || scene.status == KERRY_SCENE_CLIPPED_LOW) {

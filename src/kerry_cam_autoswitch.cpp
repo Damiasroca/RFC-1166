@@ -142,7 +142,9 @@ const char *kerryCamAutoSwitchSetCfg(const kerry_cam_autoswitch_cfg_t *cfg) {
   return nullptr;
 }
 
-static void rememberSample(uint32_t nowMs, const kerry_luma_t *luma, const kerry_scene_t *scene) {
+void kerryCamAutoSwitchNoteScene(uint32_t nowMs, const kerry_luma_t *luma, const kerry_scene_t *scene) {
+  if (!luma || !scene) return;
+  kerryAutoEnsureMu();
   xSemaphoreTake(g_autoMu, portMAX_DELAY);
   g_autoLastLuma = *luma;
   g_autoHaveLast = true;
@@ -197,8 +199,8 @@ void kerryCamAutoSwitchService(uint32_t nowMs) {
   kerryCamExpStoreGet(&exp);
   kerry_scene_t scene;
   kerryCamSceneCompute(&luma, &snap, &exp, &scene);
+  kerryCamAutoSwitchNoteScene(nowMs, &luma, &scene);
   if (scene.status == KERRY_SCENE_UNAVAILABLE) {
-    rememberSample(nowMs, &luma, &scene);
     if (kerry_log_every_ms("autosw_scene", 60000)) KERRY_LOGW(TAG, "scene EV unavailable");
     return;
   }
@@ -209,11 +211,6 @@ void kerryCamAutoSwitchService(uint32_t nowMs) {
   bool toDay = false;
   kerry_cam_mode_t mode;
   xSemaphoreTake(g_autoMu, portMAX_DELAY);
-  g_autoLastLuma = luma;
-  g_autoHaveLast = true;
-  g_autoLastSampleMs = nowMs;
-  g_autoLastScene = scene;
-  g_autoHaveScene = true;
   mode = g_autoMode;
   bool isLow = (scene.status == KERRY_SCENE_OK && scene.ev * 10.0f <= (float)cfg.lowEvTenths) ||
                (scene.status == KERRY_SCENE_CLIPPED_LOW && mode != KERRY_CAM_MODE_NIGHT);
