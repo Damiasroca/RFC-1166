@@ -383,6 +383,107 @@ button.action-card { width: 100%; }
 .login .input { max-width: none; }
 .login .common-btn { width: 100%; margin-top: 12px; }
 
+/* Diagnostics */
+.table-wrap {
+  overflow-x: auto;
+  margin-top: 12px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.data-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--raised);
+  padding: 8px 12px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+.data-table td {
+  padding: 8px 12px;
+  border-top: 1px solid var(--line-soft);
+  vertical-align: top;
+}
+.data-table tbody tr:hover { background: var(--raised); }
+.data-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.data-table td.empty {
+  color: var(--placeholder);
+  text-align: center;
+}
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+.badge.ok {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+}
+.badge.warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+}
+.badge.err {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 40%, transparent);
+  background: color-mix(in srgb, var(--err) 15%, transparent);
+}
+.mono-block {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 320px;
+  overflow: auto;
+}
+.log-panel {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 10px 0 0;
+  max-height: 420px;
+  overflow: auto;
+  white-space: pre;
+}
+.detail-panel {
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.common-btn.btn-sm {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+.tile-value.muted { color: var(--placeholder); }
+.btn-row .hint-end { margin-left: auto; }
+
 @media (max-width: 760px) {
   .wrap { flex-direction: column; }
   .sidebar {
@@ -401,6 +502,7 @@ button.action-card { width: 100%; }
   .content { padding: 20px 16px 48px; }
   .input, select { max-width: none; }
   .range-row { max-width: none; }
+  .data-table .col-opt { display: none; }
 }
 
 .ov-stage {
