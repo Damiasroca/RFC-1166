@@ -5,6 +5,8 @@
 #include <esp_camera.h>
 #include <esp_http_server.h>
 
+#include "kerry_cam_ov2640.h"
+
 extern const char *AP_SSID;
 extern const char *AP_PASS;
 extern const IPAddress AP_IP;
@@ -36,6 +38,17 @@ int kerryImageSelectableSizes(framesize_t *out, int cap);
 const char *kerryImageResolveFramesize(int framesize, framesize_t *requested, framesize_t *effective);
 const char *kerryImageSet(int framesize, int brightness, int contrast, int saturation, int flipHSet, int flipVSet);
 const char *kerryCamReapplyExposure();
+
+typedef struct {
+  uint16_t pid;
+  bool haveOv2640Live;
+  kerry_ov2640_live_t ov2640;
+  bool haveHwLuma;
+  uint8_t hwLuma;
+  int quality;
+} kerry_cam_sensor_snapshot_t;
+
+bool kerryCamReadSensorSnapshot(kerry_cam_sensor_snapshot_t *out);
 
 bool kerryUploadNow(char *message, size_t messageLen);
 void kerryRetryPortal();

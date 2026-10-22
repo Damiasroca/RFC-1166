@@ -98,18 +98,6 @@ static bool luma_from_jpeg(const uint8_t *jpeg, size_t len, uint8_t *avg, uint8_
   return true;
 }
 
-static bool sensor_hw_luma(sensor_t *s, uint8_t *out) {
-  if (!s || !s->get_reg || !out) return false;
-  uint16_t pid = s->id.PID;
-  if (pid != OV5640_PID && pid != OV3660_PID) return false;
-  int lo = s->get_reg(s, 0x5688, 0xFF);
-  int hi = s->get_reg(s, 0x5689, 0xFF);
-  if (lo < 0 || hi < 0) return false;
-  uint16_t raw = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
-  *out = (uint8_t)(raw >> 8);
-  return true;
-}
-
 static const char *awb_mode_label(int mode) {
   switch (mode) {
     case 0:
@@ -134,10 +122,6 @@ static const char *gain_ceil_label(uint8_t idx) {
   return names[idx];
 }
 
-static void refresh_sensor_status(sensor_t *s) {
-  if (s && s->init_status) s->init_status(s);
-}
-
 static void log_block(const char *title) {
   KERRY_LOGI(TAG, "---------- %s ----------", title);
 }
@@ -159,20 +143,16 @@ void kerryCamTelemetryService(uint32_t now_ms) {
   kerry_cam_exp_cfg_t cfg;
   kerryCamExpStoreGet(&cfg);
 
-  sensor_t *s = esp_camera_sensor_get();
-  refresh_sensor_status(s);
+  kerry_cam_sensor_snapshot_t snap;
+  bool haveSnap = kerryCamReadSensorSnapshot(&snap);
 
   JsonDocument imgDoc;
   kerryImageGet(imgDoc);
   JsonDocument awbDoc;
   kerryAwbFillJson(awbDoc);
 
-  uint16_t pid = s ? s->id.PID : 0;
+  uint16_t pid = haveSnap ? snap.pid : 0;
   const char *sensor = kerryCameraSensorName();
-  int liveAec = s ? (int)s->status.aec_value : -1;
-  int liveAgc = s ? (int)s->status.agc_gain : -1;
-  int liveAecOn = s ? (int)s->status.aec : -1;
-  int liveAgcOn = s ? (int)s->status.agc : -1;
 
   log_block("Camera settings");
   KERRY_LOGI(TAG, "sensor=%s pid=0x%04X size=%s", sensor, (unsigned)pid,
@@ -186,13 +166,23 @@ void kerryCamTelemetryService(uint32_t now_ms) {
            cfg.gainCeiling == KERRY_EXP_GAIN_CEIL_SENTINEL ? "default" : gain_ceil_label(cfg.gainCeiling));
   KERRY_LOGI(TAG, "%s", expLine);
 
-  if (liveAec >= 0) {
+  if (haveSnap && snap.haveOv2640Live) {
+    const kerry_ov2640_live_t *live = &snap.ov2640;
+    // OV2640 GAIN: bits 7..4 each double the gain, bits 3..0 add n/16.
+    unsigned coarse = 1;
+    if (live->gainReg & 0x10) coarse *= 2;
+    if (live->gainReg & 0x20) coarse *= 2;
+    if (live->gainReg & 0x40) coarse *= 2;
+    if (live->gainReg & 0x80) coarse *= 2;
+    unsigned x16 = coarse * (16u + (unsigned)(live->gainReg & 0x0F));
     snprintf(expLine, sizeof expLine,
-             "exposure live: AEC=%s val=%d | AGC=%s gain=%d est=%ums meas=%ums",
-             liveAecOn ? "on" : "off", liveAec, liveAgcOn ? "on" : "off", liveAgc,
-             (unsigned)kerryCamExposureEstimatedMs(), (unsigned)kerryCamExposureMeasuredMs());
+             "exposure live: AEC=%s val=%u | AGC=%s gain=0x%02X x%u.%04u",
+             live->aecOn ? "on" : "off", (unsigned)live->aecValue, live->agcOn ? "on" : "off",
+             (unsigned)live->gainReg, x16 / 16u, (x16 % 16u) * 625u);
     KERRY_LOGI(TAG, "%s", expLine);
   }
+  KERRY_LOGI(TAG, "exposure est=%ums meas=%ums", (unsigned)kerryCamExposureEstimatedMs(),
+             (unsigned)kerryCamExposureMeasuredMs());
 
   if (kerryOv2640Is(pid)) {
     snprintf(expLine, sizeof expLine, "exposure timing: clkrc=0x%02X dummyLines=%u",
@@ -213,10 +203,10 @@ void kerryCamTelemetryService(uint32_t now_ms) {
 
   KERRY_LOGI(TAG, "picture: bright=%d contrast=%d sat=%d flipH=%d flipV=%d quality=%d",
              imgDoc["brightness"] | 0, imgDoc["contrast"] | 0, imgDoc["saturation"] | 0, imgDoc["flipH"] | 0,
-             imgDoc["flipV"] | 0, s ? (int)s->status.quality : -1);
+             imgDoc["flipV"] | 0, haveSnap ? snap.quality : -1);
 
-  uint8_t hwLuma = 0;
-  bool haveHw = sensor_hw_luma(s, &hwLuma);
+  uint8_t hwLuma = haveSnap ? snap.hwLuma : 0;
+  bool haveHw = haveSnap && snap.haveHwLuma;
 
   uint8_t *jpeg = nullptr;
   size_t jpegLen = 0;

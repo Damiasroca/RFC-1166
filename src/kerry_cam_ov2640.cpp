@@ -101,6 +101,23 @@ const char *kerryOv2640ApplyTiming(sensor_t *s, uint8_t clkrc, uint16_t dummyLin
   return nullptr;
 }
 
+bool kerryOv2640ReadLive(sensor_t *s, kerry_ov2640_live_t *out) {
+  if (!s || !s->get_reg || !out) return false;
+  int com8 = readReg(s, 0x0113);
+  int reg45 = readReg(s, 0x0145);
+  int aec = readReg(s, 0x0110);
+  int reg04 = readReg(s, 0x0104);
+  int gain = readReg(s, 0x0100);
+  int com9 = readReg(s, 0x0114);
+  if (com8 < 0 || reg45 < 0 || aec < 0 || reg04 < 0 || gain < 0 || com9 < 0) return false;
+  out->aecOn = (com8 & 0x01) != 0;
+  out->agcOn = (com8 & 0x04) != 0;
+  out->aecValue = (uint16_t)(((reg45 & 0x3F) << 10) | ((aec & 0xFF) << 2) | (reg04 & 0x03));
+  out->gainReg = (uint8_t)gain;
+  out->gainCeilingIdx = (uint8_t)((com9 >> 5) & 0x07);
+  return true;
+}
+
 int kerryOv2640SetAecValue(sensor_t *s, int value) {
   if (!s || !s->set_reg) return -1;
   if (value < 0) value = 0;

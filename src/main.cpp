@@ -974,6 +974,38 @@ bool kerryStreamActive() { return streamActive; }
 
 bool kerryCamGrabActive() { return camGrabActive; }
 
+bool kerryCamReadSensorSnapshot(kerry_cam_sensor_snapshot_t *out) {
+  if (!out) return false;
+  memset(out, 0, sizeof(*out));
+  if (!lockCam(1000)) return false;
+  if (!cameraReady) {
+    unlockCam();
+    return false;
+  }
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s) {
+    unlockCam();
+    return false;
+  }
+  out->pid = s->id.PID;
+  out->quality = (int)s->status.quality;
+  if (kerryOv2640Is(out->pid)) {
+    out->haveOv2640Live = kerryOv2640ReadLive(s, &out->ov2640);
+  } else if (out->pid == OV5640_PID || out->pid == OV3660_PID) {
+    if (s->get_reg) {
+      int lo = s->get_reg(s, 0x5688, 0xFF);
+      int hi = s->get_reg(s, 0x5689, 0xFF);
+      if (lo >= 0 && hi >= 0) {
+        uint16_t raw = (uint16_t)(((uint16_t)hi << 8) | (uint16_t)lo);
+        out->hwLuma = (uint8_t)(raw >> 8);
+        out->haveHwLuma = true;
+      }
+    }
+  }
+  unlockCam();
+  return true;
+}
+
 bool kerryCamTelemetryGrabCopy(uint8_t **jpeg, size_t *len) {
   if (!jpeg || !len) return false;
   *jpeg = nullptr;

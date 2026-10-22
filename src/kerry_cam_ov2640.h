@@ -19,3 +19,13 @@ void kerryOv2640NoteBaseline(framesize_t fs, uint8_t clkrc, uint16_t dummyLines,
 // Writes CLKRC and both dummy-line registers. Sentinel clock and zero dummy lines use the cached driver values.
 const char *kerryOv2640ApplyTiming(sensor_t *s, uint8_t clkrc, uint16_t dummyLines);
 int kerryOv2640SetAecValue(sensor_t *s, int value);
+
+typedef struct {
+  bool aecOn;
+  bool agcOn;
+  uint16_t aecValue;
+  uint8_t gainReg;
+  uint8_t gainCeilingIdx;
+} kerry_ov2640_live_t;
+
+bool kerryOv2640ReadLive(sensor_t *s, kerry_ov2640_live_t *out);
