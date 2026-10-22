@@ -44,6 +44,7 @@ bool kerryCaptureUploadJpeg(const char *why, uint8_t **jpeg, size_t *len, char *
 bool kerryCaptureBlocked(const char **why);
 bool kerryTryBeginUpload();
 void kerryEndUpload();
+bool kerryUploadInProgress();
 bool kerryEcoNetBusy();
 bool kerryTryBeginEcoNet();
 void kerryEndEcoNet();

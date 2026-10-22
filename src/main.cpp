@@ -23,6 +23,7 @@
 #include "kerry_awb.h"
 #include "kerry_cam_exposure.h"
 #include "kerry_cam_ov2640.h"
+#include "kerry_cam_telemetry.h"
 #include "kerry_health.h"
 #include "kerry_log.h"
 #include "kerry_shared.h"
@@ -202,6 +203,8 @@ bool kerryCaptureBlocked(const char **why) {
   }
   return false;
 }
+
+bool kerryUploadInProgress() { return uploadInProgress; }
 
 bool kerryTryBeginUpload() {
   bool ok = false;
@@ -970,6 +973,39 @@ const char *kerryWifiScan(JsonDocument &doc) {
 bool kerryStreamActive() { return streamActive; }
 
 bool kerryCamGrabActive() { return camGrabActive; }
+
+bool kerryCamTelemetryGrabCopy(uint8_t **jpeg, size_t *len) {
+  if (!jpeg || !len) return false;
+  *jpeg = nullptr;
+  *len = 0;
+  if (!cameraReady) return false;
+  if (!lockCam(3000)) return false;
+  kerryWdtLenient();
+  camera_fb_t *fb = camFbGetHeldLock(false);
+  if (!fb || fb->format != PIXFORMAT_JPEG || fb->len == 0) {
+    if (fb) esp_camera_fb_return(fb);
+    kerryWdtRestore();
+    unlockCam();
+    return false;
+  }
+  uint8_t *copy = (uint8_t *)heap_caps_malloc(fb->len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!copy) copy = (uint8_t *)malloc(fb->len);
+  if (!copy) {
+    esp_camera_fb_return(fb);
+    kerryWdtRestore();
+    unlockCam();
+    return false;
+  }
+  memcpy(copy, fb->buf, fb->len);
+  *len = fb->len;
+  *jpeg = copy;
+  esp_camera_fb_return(fb);
+  kerryWdtRestore();
+  unlockCam();
+  return true;
+}
+
+void kerryCamTelemetryFreeCopy(uint8_t *jpeg) { free(jpeg); }
 
 int kerryCamDiscardFrames(int count, uint32_t *tsMs, int tsCap) {
   if (count <= 0 || !camLockHeld) return 0;
@@ -2833,6 +2869,7 @@ void loop() {
   }
   serviceLive();
   serviceExposureRevertIfNeeded();
+  kerryCamTelemetryService(millis());
   if (uploadNowRequested && !streamActive && !livePushActive && !otaInProgress && kerryTryBeginUpload()) {
     uploadNowRequested = false;
     ulogf("manual upload");
