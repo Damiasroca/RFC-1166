@@ -44,7 +44,7 @@ static void log_block(const char *title) {
 }
 
 static bool may_run(uint32_t now_ms) {
-  if (now_ms < s_next_ms) return false;
+  if ((int32_t)(now_ms - s_next_ms) < 0) return false;
   return kerryCamSamplingAllowed();
 }
 

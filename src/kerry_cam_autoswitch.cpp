@@ -288,7 +288,7 @@ void kerryCamAutoSwitchService(uint32_t nowMs) {
   if (!cfg.enabled) return;
   kerry_cam_exp_cfg_t night;
   if (!kerryCamExpStoreGetNight(&night)) return;
-  if (nowMs < nextMs) return;
+  if ((int32_t)(nowMs - nextMs) < 0) return;
   if (!kerryCamSamplingAllowed()) return;
 
   xSemaphoreTake(g_mu, portMAX_DELAY);
