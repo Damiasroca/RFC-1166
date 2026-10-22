@@ -21,6 +21,7 @@
 #include "ecowitt.h"
 #include "geopulse.h"
 #include "kerry_awb.h"
+#include "kerry_cam_autoswitch.h"
 #include "kerry_cam_exposure.h"
 #include "kerry_cam_ov2640.h"
 #include "kerry_cam_telemetry.h"
@@ -2853,6 +2854,7 @@ void setup() {
   kerryTimeInit();
   kerryAwbLoad();
   kerryCamExposureLoad();
+  kerryCamAutoSwitchLoad();
   kerry_overlay_cfg_load();
   kerryGeoPulseLoadConfig();
   ecowittInit();
@@ -2949,6 +2951,7 @@ void loop() {
   serviceLive();
   serviceExposureRevertIfNeeded();
   kerryCamTelemetryService(millis());
+  kerryCamAutoSwitchService(millis());
   if (uploadNowRequested && !streamActive && !livePushActive && !otaInProgress && kerryTryBeginUpload()) {
     uploadNowRequested = false;
     ulogf("manual upload");
