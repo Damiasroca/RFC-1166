@@ -6,9 +6,11 @@
 #include "kerry_cam_exposure_store.h"
 #include "kerry_cam_luma.h"
 #include "kerry_cam_ov2640.h"
+#include "kerry_cam_scene.h"
 #include "kerry_log.h"
 #include "kerry_shared.h"
 
+#include <math.h>
 #include <stdio.h>
 
 static const char *TAG = "camstat";
@@ -52,11 +54,14 @@ void kerryCamTelemetryService(uint32_t now_ms) {
   if (!may_run(now_ms)) return;
   s_next_ms = now_ms + KERRY_CAM_TELEMETRY_INTERVAL_MS;
 
-  kerry_cam_exp_cfg_t cfg;
-  kerryCamExpStoreGet(&cfg);
+  kerry_luma_t frameLuma;
+  bool haveLuma = kerryCamSampleLuma(&frameLuma);
 
   kerry_cam_sensor_snapshot_t snap;
   bool haveSnap = kerryCamReadSensorSnapshot(&snap);
+
+  kerry_cam_exp_cfg_t cfg;
+  kerryCamExpStoreGet(&cfg);
 
   JsonDocument imgDoc;
   kerryImageGet(imgDoc);
@@ -80,13 +85,7 @@ void kerryCamTelemetryService(uint32_t now_ms) {
 
   if (haveSnap && snap.haveOv2640Live) {
     const kerry_ov2640_live_t *live = &snap.ov2640;
-    // OV2640 GAIN: bits 7..4 each double the gain, bits 3..0 add n/16.
-    unsigned coarse = 1;
-    if (live->gainReg & 0x10) coarse *= 2;
-    if (live->gainReg & 0x20) coarse *= 2;
-    if (live->gainReg & 0x40) coarse *= 2;
-    if (live->gainReg & 0x80) coarse *= 2;
-    unsigned x16 = coarse * (16u + (unsigned)(live->gainReg & 0x0F));
+    unsigned x16 = (unsigned)lroundf(kerryOv2640GainMultiplier(live->gainReg) * 16.0f);
     snprintf(expLine, sizeof expLine,
              "exposure live: AEC=%s val=%u | AGC=%s gain=0x%02X x%u.%04u",
              live->aecOn ? "on" : "off", (unsigned)live->aecValue, live->agcOn ? "on" : "off",
@@ -120,9 +119,6 @@ void kerryCamTelemetryService(uint32_t now_ms) {
   uint8_t hwLuma = haveSnap ? snap.hwLuma : 0;
   bool haveHw = haveSnap && snap.haveHwLuma;
 
-  kerry_luma_t frameLuma;
-  bool haveLuma = kerryCamSampleLuma(&frameLuma);
-
   if (haveLuma && haveHw) {
     KERRY_LOGI(TAG, "luma: frame avg=%u min=%u max=%u | sensor avg=%u", (unsigned)frameLuma.avg,
                (unsigned)frameLuma.min, (unsigned)frameLuma.max, (unsigned)hwLuma);
@@ -133,6 +129,18 @@ void kerryCamTelemetryService(uint32_t now_ms) {
     KERRY_LOGI(TAG, "luma: sensor avg=%u (frame sample skipped)", (unsigned)hwLuma);
   } else {
     KERRY_LOGW(TAG, "luma: unavailable");
+  }
+
+  kerry_scene_t scene = {};
+  scene.status = KERRY_SCENE_UNAVAILABLE;
+  if (haveLuma && haveSnap) kerryCamSceneCompute(&frameLuma, &snap, &cfg, &scene);
+  if (scene.status == KERRY_SCENE_OK) {
+    KERRY_LOGI(TAG, "scene: ev=%.1f exp=%.1fms gain=x%.2f", scene.ev, scene.exposureMs, scene.gain);
+  } else if (scene.status == KERRY_SCENE_CLIPPED_HIGH || scene.status == KERRY_SCENE_CLIPPED_LOW) {
+    KERRY_LOGI(TAG, "scene: clipped %s (exp=%.1fms gain=x%.2f)",
+               scene.status == KERRY_SCENE_CLIPPED_HIGH ? "high" : "low", scene.exposureMs, scene.gain);
+  } else {
+    KERRY_LOGI(TAG, "scene: unavailable");
   }
 
   KERRY_LOGI(TAG, "----------------------------------------");

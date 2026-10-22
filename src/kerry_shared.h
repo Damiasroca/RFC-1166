@@ -44,6 +44,7 @@ const char *kerryCamApplyExposureCfg(const kerry_cam_exp_cfg_t *cfg);
 
 typedef struct {
   uint16_t pid;
+  framesize_t framesize;
   bool haveOv2640Live;
   kerry_ov2640_live_t ov2640;
   bool haveHwLuma;

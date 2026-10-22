@@ -1025,6 +1025,7 @@ bool kerryCamReadSensorSnapshot(kerry_cam_sensor_snapshot_t *out) {
     return false;
   }
   out->pid = s->id.PID;
+  out->framesize = s->status.framesize;
   out->quality = (int)s->status.quality;
   if (kerryOv2640Is(out->pid)) {
     out->haveOv2640Live = kerryOv2640ReadLive(s, &out->ov2640);
