@@ -4,99 +4,16 @@
 #include "kerry_cam_exposure.h"
 #include "kerry_cam_exposure_cfg.h"
 #include "kerry_cam_exposure_store.h"
+#include "kerry_cam_luma.h"
 #include "kerry_cam_ov2640.h"
 #include "kerry_log.h"
 #include "kerry_shared.h"
 
-#include <esp_camera.h>
-#include <esp_heap_caps.h>
-#include <rom/tjpgd.h>
-
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 static const char *TAG = "camstat";
 
 static uint32_t s_next_ms = KERRY_CAM_TELEMETRY_INTERVAL_MS;
-
-typedef struct {
-  const uint8_t *jpeg;
-  size_t len;
-  size_t pos;
-  uint64_t sum;
-  uint32_t count;
-  uint8_t min_y;
-  uint8_t max_y;
-} luma_dec_t;
-
-static UINT luma_in_cb(JDEC *jd, BYTE *buf, UINT n) {
-  luma_dec_t *d = (luma_dec_t *)jd->device;
-  if (d->pos >= d->len || n == 0) return 0;
-  if (n > d->len - d->pos) n = (UINT)(d->len - d->pos);
-  if (buf) memcpy(buf, d->jpeg + d->pos, n);
-  d->pos += n;
-  return n;
-}
-
-static inline uint8_t rgb_to_y(uint8_t r, uint8_t g, uint8_t b) {
-  return (uint8_t)((77u * (uint32_t)r + 150u * (uint32_t)g + 29u * (uint32_t)b) >> 8);
-}
-
-static UINT luma_out_cb(JDEC *jd, void *bitmap, JRECT *rect) {
-  luma_dec_t *d = (luma_dec_t *)jd->device;
-  if (!bitmap || !rect) return 0;
-  if (rect->left > rect->right || rect->top > rect->bottom) return 0;
-  int rw = rect->right - rect->left + 1;
-  int rh = rect->bottom - rect->top + 1;
-  const uint8_t *src = (const uint8_t *)bitmap;
-  for (int row = 0; row < rh; row++) {
-    const uint8_t *px = src + (size_t)row * (size_t)rw * 3;
-    for (int col = 0; col < rw; col++) {
-      uint8_t y = rgb_to_y(px[0], px[1], px[2]);
-      d->sum += y;
-      d->count++;
-      if (d->count == 1) {
-        d->min_y = y;
-        d->max_y = y;
-      } else {
-        if (y < d->min_y) d->min_y = y;
-        if (y > d->max_y) d->max_y = y;
-      }
-      px += 3;
-    }
-  }
-  return 1;
-}
-
-static bool luma_from_jpeg(const uint8_t *jpeg, size_t len, uint8_t *avg, uint8_t *min_y, uint8_t *max_y) {
-  if (!jpeg || len < 4 || jpeg[0] != 0xFF || jpeg[1] != 0xD8) return false;
-  luma_dec_t d = {};
-  d.jpeg = jpeg;
-  d.len = len;
-  JDEC jd;
-  uint8_t *work = (uint8_t *)heap_caps_malloc(4096, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  if (!work) work = (uint8_t *)malloc(4096);
-  if (!work) return false;
-  JRESULT jr = jd_prepare(&jd, luma_in_cb, work, 4096, &d);
-  if (jr != JDR_OK) {
-    free(work);
-    return false;
-  }
-  if (jd.width < 8 || jd.height < 8) {
-    free(work);
-    return false;
-  }
-  BYTE scale = 2;
-  if (jd.width > 1280 || jd.height > 960) scale = 3;
-  jr = jd_decomp(&jd, luma_out_cb, scale);
-  free(work);
-  if (jr != JDR_OK || d.count == 0) return false;
-  *avg = (uint8_t)(d.sum / d.count);
-  *min_y = d.min_y;
-  *max_y = d.max_y;
-  return true;
-}
 
 static const char *awb_mode_label(int mode) {
   switch (mode) {
@@ -128,12 +45,7 @@ static void log_block(const char *title) {
 
 static bool may_run(uint32_t now_ms) {
   if (now_ms < s_next_ms) return false;
-  if (!kerryCameraReady()) return false;
-  if (kerryStreamActive() || kerryCamGrabActive()) return false;
-  const char *blocked = nullptr;
-  if (kerryCaptureBlocked(&blocked)) return false;
-  if (kerryEcoNetBusy() || kerryUploadInProgress()) return false;
-  return true;
+  return kerryCamSamplingAllowed();
 }
 
 void kerryCamTelemetryService(uint32_t now_ms) {
@@ -208,18 +120,15 @@ void kerryCamTelemetryService(uint32_t now_ms) {
   uint8_t hwLuma = haveSnap ? snap.hwLuma : 0;
   bool haveHw = haveSnap && snap.haveHwLuma;
 
-  uint8_t *jpeg = nullptr;
-  size_t jpegLen = 0;
-  bool haveFrame = kerryCamGrabFreshJpegCopy(&jpeg, &jpegLen);
-  uint8_t avg = 0, minY = 0, maxY = 0;
-  bool haveLuma = haveFrame && luma_from_jpeg(jpeg, jpegLen, &avg, &minY, &maxY);
-  if (jpeg) kerryCamFreeJpegCopy(jpeg);
+  kerry_luma_t frameLuma;
+  bool haveLuma = kerryCamSampleLuma(&frameLuma);
 
   if (haveLuma && haveHw) {
-    KERRY_LOGI(TAG, "luma: frame avg=%u min=%u max=%u | sensor avg=%u", (unsigned)avg, (unsigned)minY,
-               (unsigned)maxY, (unsigned)hwLuma);
+    KERRY_LOGI(TAG, "luma: frame avg=%u min=%u max=%u | sensor avg=%u", (unsigned)frameLuma.avg,
+               (unsigned)frameLuma.min, (unsigned)frameLuma.max, (unsigned)hwLuma);
   } else if (haveLuma) {
-    KERRY_LOGI(TAG, "luma: frame avg=%u min=%u max=%u", (unsigned)avg, (unsigned)minY, (unsigned)maxY);
+    KERRY_LOGI(TAG, "luma: frame avg=%u min=%u max=%u", (unsigned)frameLuma.avg, (unsigned)frameLuma.min,
+               (unsigned)frameLuma.max);
   } else if (haveHw) {
     KERRY_LOGI(TAG, "luma: sensor avg=%u (frame sample skipped)", (unsigned)hwLuma);
   } else {
