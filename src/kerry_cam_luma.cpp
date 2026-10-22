@@ -2,9 +2,11 @@
 
 #include "kerry_shared.h"
 
+#include <Arduino.h>
 #include <esp_heap_caps.h>
 #include <rom/tjpgd.h>
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -13,6 +15,7 @@ typedef struct {
   size_t len;
   size_t pos;
   uint64_t sum;
+  uint64_t linSum;
   uint32_t count;
   uint8_t min_y;
   uint8_t max_y;
@@ -31,6 +34,28 @@ static inline uint8_t rgb_to_y(uint8_t r, uint8_t g, uint8_t b) {
   return (uint8_t)((77u * (uint32_t)r + 150u * (uint32_t)g + 29u * (uint32_t)b) >> 8);
 }
 
+static portMUX_TYPE s_lutMux = portMUX_INITIALIZER_UNLOCKED;
+static volatile bool s_lutReady = false;
+static uint16_t s_lut[256];
+
+static void ensureLinLut(void) {
+  if (s_lutReady) return;
+  uint16_t local[256];
+  for (int i = 0; i < 256; i++) {
+    float v = 65535.0f * powf((float)i / 255.0f, 2.2f);
+    long r = lroundf(v);
+    if (r < 0) r = 0;
+    if (r > 65535) r = 65535;
+    local[i] = (uint16_t)r;
+  }
+  portENTER_CRITICAL(&s_lutMux);
+  if (!s_lutReady) {
+    memcpy(s_lut, local, sizeof(s_lut));
+    s_lutReady = true;
+  }
+  portEXIT_CRITICAL(&s_lutMux);
+}
+
 static UINT luma_out_cb(JDEC *jd, void *bitmap, JRECT *rect) {
   luma_dec_t *d = (luma_dec_t *)jd->device;
   if (!bitmap || !rect) return 0;
@@ -43,6 +68,7 @@ static UINT luma_out_cb(JDEC *jd, void *bitmap, JRECT *rect) {
     for (int col = 0; col < rw; col++) {
       uint8_t y = rgb_to_y(px[0], px[1], px[2]);
       d->sum += y;
+      d->linSum += s_lut[y];
       d->count++;
       if (d->count == 1) {
         d->min_y = y;
@@ -59,6 +85,7 @@ static UINT luma_out_cb(JDEC *jd, void *bitmap, JRECT *rect) {
 
 bool kerryLumaFromJpeg(const uint8_t *jpeg, size_t len, kerry_luma_t *out) {
   if (!jpeg || !out || len < 4 || jpeg[0] != 0xFF || jpeg[1] != 0xD8) return false;
+  ensureLinLut();
   luma_dec_t d = {};
   d.jpeg = jpeg;
   d.len = len;
@@ -83,6 +110,7 @@ bool kerryLumaFromJpeg(const uint8_t *jpeg, size_t len, kerry_luma_t *out) {
   out->avg = (uint8_t)(d.sum / d.count);
   out->min = d.min_y;
   out->max = d.max_y;
+  out->linMean = (uint16_t)(d.linSum / d.count);
   return true;
 }
 

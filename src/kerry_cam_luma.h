@@ -7,6 +7,7 @@ typedef struct {
   uint8_t avg;
   uint8_t min;
   uint8_t max;
+  uint16_t linMean;
 } kerry_luma_t;
 
 bool kerryLumaFromJpeg(const uint8_t *jpeg, size_t len, kerry_luma_t *out);
