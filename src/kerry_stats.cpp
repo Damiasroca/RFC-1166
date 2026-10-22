@@ -256,16 +256,29 @@ void kerryStatsBoot(bool mergePrevSession) {
   memset(&s_sinceBoot, 0, sizeof s_sinceBoot);
   loadLifetime();
   loadFailsBlob();
+  kerry_stats_counts_t pendingPrev = {};
+  bool restorePrevToSession = false;
   if (mergePrevSession) {
     const kerry_pm_rtc_t *prev = kerryPmPrevious();
     if (prev) {
       kerry_stats_counts_t merged = s_lifetime;
       addCounts(&merged, &prev->stats.counts);
-      if (saveLifetimeNvs(&merged)) s_lifetime = merged;
+      if (saveLifetimeNvs(&merged)) {
+        s_lifetime = merged;
+      } else {
+        pendingPrev = prev->stats.counts;
+        restorePrevToSession = true;
+      }
     }
   }
   kerry_stats_session_t *sess = kerryStatsSessionPtr();
-  if (sess) memset(sess, 0, sizeof *sess);
+  if (sess) {
+    memset(sess, 0, sizeof *sess);
+    if (restorePrevToSession) {
+      sess->counts = pendingPrev;
+      s_dirty = true;
+    }
+  }
 }
 
 void kerryStatsNote(kerry_stat_event_t ev, const char *detail, int code) {
