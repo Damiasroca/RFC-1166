@@ -1,6 +1,6 @@
 #include "kerry_postmortem.h"
 
-#include "kerry_stats.h"
+#include "kerry_log.h"
 #include "kerry_version.h"
 
 #include <esp_attr.h>
@@ -46,25 +46,22 @@ static void pmInitSession() {
 }
 
 void kerryPmBoot() {
-  kerry_pm_rtc_t scratch;
-  memcpy(&scratch, &s_rtc, sizeof scratch);
   s_hadPrev = false;
   if (s_prev) {
     heap_caps_free(s_prev);
     s_prev = nullptr;
   }
   esp_reset_reason_t rr = esp_reset_reason();
-  if (pmRecordValid(&scratch) && rr != ESP_RST_POWERON) {
+  if (pmRecordValid(&s_rtc) && rr != ESP_RST_POWERON) {
     size_t sz = sizeof(kerry_pm_rtc_t);
     s_prev = (kerry_pm_rtc_t *)heap_caps_malloc(sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!s_prev) s_prev = (kerry_pm_rtc_t *)malloc(sz);
     if (s_prev) {
-      memcpy(s_prev, &scratch, sz);
+      memcpy(s_prev, &s_rtc, sz);
       s_hadPrev = true;
     }
   }
   pmInitSession();
-  kerryStatsBoot(s_hadPrev);
 }
 
 bool kerryPmHadValidPrevious() { return s_hadPrev; }
@@ -124,9 +121,9 @@ void kerryRebootWithCause(const char *cause) {
     portEXIT_CRITICAL(&s_pmMux);
   }
   kerryPmHeartbeat();
+  if (cause) KERRY_LOGW("main", "rebooting: %s", cause);
+  else KERRY_LOGW("main", "rebooting");
   kerryStatsFlush();
-  if (cause) Serial.printf("rebooting: %s\n", cause);
-  else Serial.println("rebooting");
   Serial.flush();
   delay(400);
   esp_restart();

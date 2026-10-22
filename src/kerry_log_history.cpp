@@ -75,10 +75,11 @@ void kerryLogHistoryWrite(const char *line, int len) {
 
 size_t kerryLogHistoryRead(uint32_t sinceSeq, char *out, size_t cap, uint32_t *lastSeq, bool *truncated) {
   if (!out || cap < 2 || !lastSeq || !truncated) return 0;
-  *truncated = sinceSeq > 0 && sinceSeq < s_oldestSeq;
   *lastSeq = sinceSeq;
+  *truncated = false;
   if (!s_buf || !s_mu) return 0;
   if (xSemaphoreTake(s_mu, pdMS_TO_TICKS(100)) != pdTRUE) return 0;
+  *truncated = sinceSeq > 0 && sinceSeq < s_oldestSeq;
   size_t written = 0;
   size_t pos = s_head;
   size_t scanned = 0;

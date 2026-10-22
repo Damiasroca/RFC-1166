@@ -28,6 +28,7 @@
 #include "kerry_cam_telemetry.h"
 #include "kerry_health.h"
 #include "kerry_log.h"
+#include "kerry_diag_fs.h"
 #include "kerry_log_history.h"
 #include "kerry_postmortem.h"
 #include "kerry_stats.h"
@@ -2899,6 +2900,8 @@ void setup() {
   }
   camLock = xSemaphoreCreateMutex();
   loadConfig();
+  kerryDiagFsInit();
+  kerryStatsBoot(kerryPmHadValidPrevious());
   kerryHealthInit();
   kerryTimeInit();
   kerryPmReportsInit();

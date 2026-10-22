@@ -5,6 +5,12 @@
   var logLines = [];
   var logMissed = false;
 
+  function esc(s) {
+    if (s === null || s === undefined) return "";
+    s = String(s);
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
   function fmtUptime(sec) {
     if (sec === null || sec === undefined || sec < 0) return "—";
     sec = Math.floor(sec);
@@ -44,6 +50,7 @@
     parts.push("deliberate " + (ctr.deliberate || 0));
     parts.push("crash " + (ctr.crash || 0));
     parts.push("power " + (ctr.power || 0));
+    if (data.storage) parts.push("storage " + data.storage);
     el.textContent = parts.join(" · ");
     var by = ctr.byReason || {};
     var reasons = document.getElementById("diagReasonList");
@@ -62,13 +69,13 @@
     reports.forEach(function (r, idx) {
       var tr = document.createElement("tr");
       tr.innerHTML =
-        "<td>" + fmtEpoch(r.bootTime) + "</td>" +
-        "<td>" + (r.reason || "—") + "</td>" +
-        "<td><span class=\"" + badgeClass(r.class) + "\">" + (r.class || "?") + "</span></td>" +
-        "<td>" + (r.cause || "—") + "</td>" +
-        "<td>" + fmtUptime(r.prevUptimeS) + "</td>" +
-        "<td>" + ((r.activity || []).join(", ") || "—") + "</td>" +
-        "<td>" + (r.fwGit || r.fwVersion || "—") + "</td>" +
+        "<td>" + esc(fmtEpoch(r.bootTime)) + "</td>" +
+        "<td>" + esc(r.reason || "—") + "</td>" +
+        "<td><span class=\"" + badgeClass(r.class) + "\">" + esc(r.class || "?") + "</span></td>" +
+        "<td>" + esc(r.cause || "—") + "</td>" +
+        "<td>" + esc(fmtUptime(r.prevUptimeS)) + "</td>" +
+        "<td>" + esc((r.activity || []).join(", ") || "—") + "</td>" +
+        "<td>" + esc(r.fwGit || r.fwVersion || "—") + "</td>" +
         "<td><button type=\"button\" class=\"linkish\" data-rpt=\"" + idx + "\">Details</button></td>";
       tbody.appendChild(tr);
     });
@@ -97,28 +104,28 @@
         var finestra = document.getElementById("diagFinestra");
         if (finestra) {
           finestra.innerHTML =
-            "<p>Attempts: " + (life.upAttempts || 0) + " lifetime / " + (sess.upAttempts || 0) + " session</p>" +
-            "<p>OK: " + (life.upOk || 0) + " / " + (sess.upOk || 0) + " · success " +
-            rate(life.upOk, life.upAttempts) + " / " + rate(sess.upOk, sess.upAttempts) + "</p>" +
-            "<p>Skipped (net): " + (life.upSkippedNet || 0) + " / " + (sess.upSkippedNet || 0) + "</p>" +
-            "<p>Capture fail: " + (life.upCaptureFail || 0) + " / " + (sess.upCaptureFail || 0) +
-            " · OOM: " + (life.upOom || 0) + " / " + (sess.upOom || 0) + "</p>" +
-            "<p>HTTP 4xx/5xx/other: " + (life.upHttp4xx || 0) + "/" + (sess.upHttp4xx || 0) + " · " +
-            (life.upHttp5xx || 0) + "/" + (sess.upHttp5xx || 0) + " · " +
-            (life.upHttpOther || 0) + "/" + (sess.upHttpOther || 0) + "</p>" +
-            "<p>No connection: " + (life.upNoConn || 0) + " / " + (sess.upNoConn || 0) + "</p>" +
-            "<p>Fail streak: " + (res.upStreak || 0) + " (longest " + (res.upLongestStreak || 0) + ")</p>" +
-            "<p>Last OK: " + fmtEpoch(res.lastUpOkEpoch) + "</p>" +
-            "<p>Last fail: " + fmtEpoch(res.lastUpFailEpoch) + " — " + (res.lastUpFailText || "—") + "</p>" +
-            "<p class=\"hint\">Status: " + (res.uploadStatus || "—") + "</p>";
+            "<p>Attempts: " + esc(life.upAttempts || 0) + " lifetime / " + esc(sess.upAttempts || 0) + " session</p>" +
+            "<p>OK: " + esc(life.upOk || 0) + " / " + esc(sess.upOk || 0) + " · success " +
+            esc(rate(life.upOk, life.upAttempts)) + " / " + esc(rate(sess.upOk, sess.upAttempts)) + "</p>" +
+            "<p>Skipped (net): " + esc(life.upSkippedNet || 0) + " / " + esc(sess.upSkippedNet || 0) + "</p>" +
+            "<p>Capture fail: " + esc(life.upCaptureFail || 0) + " / " + esc(sess.upCaptureFail || 0) +
+            " · OOM: " + esc(life.upOom || 0) + " / " + esc(sess.upOom || 0) + "</p>" +
+            "<p>HTTP 4xx/5xx/other: " + esc(life.upHttp4xx || 0) + "/" + esc(sess.upHttp4xx || 0) + " · " +
+            esc(life.upHttp5xx || 0) + "/" + esc(sess.upHttp5xx || 0) + " · " +
+            esc(life.upHttpOther || 0) + "/" + esc(sess.upHttpOther || 0) + "</p>" +
+            "<p>No connection: " + esc(life.upNoConn || 0) + " / " + esc(sess.upNoConn || 0) + "</p>" +
+            "<p>Fail streak: " + esc(res.upStreak || 0) + " (longest " + esc(res.upLongestStreak || 0) + ")</p>" +
+            "<p>Last OK: " + esc(fmtEpoch(res.lastUpOkEpoch)) + "</p>" +
+            "<p>Last fail: " + esc(fmtEpoch(res.lastUpFailEpoch)) + " — " + esc(res.lastUpFailText || "—") + "</p>" +
+            "<p class=\"hint\">Status: " + esc(res.uploadStatus || "—") + "</p>";
         }
         var eco = document.getElementById("diagEcowitt");
         if (eco) {
           eco.innerHTML =
-            "<p>Attempts: " + (life.ecoAttempts || 0) + " / " + (sess.ecoAttempts || 0) + "</p>" +
-            "<p>OK: " + (life.ecoOk || 0) + " / " + (sess.ecoOk || 0) + "</p>" +
-            "<p>Fail: " + (life.ecoFail || 0) + " / " + (sess.ecoFail || 0) + "</p>" +
-            "<p class=\"hint\">" + (res.ecowittStatus || "—") + "</p>";
+            "<p>Attempts: " + esc(life.ecoAttempts || 0) + " / " + esc(sess.ecoAttempts || 0) + "</p>" +
+            "<p>OK: " + esc(life.ecoOk || 0) + " / " + esc(sess.ecoOk || 0) + "</p>" +
+            "<p>Fail: " + esc(life.ecoFail || 0) + " / " + esc(sess.ecoFail || 0) + "</p>" +
+            "<p class=\"hint\">" + esc(res.ecowittStatus || "—") + "</p>";
         }
         var misc = document.getElementById("diagMisc");
         if (misc) {
@@ -134,10 +141,10 @@
           (res.recentFailures || []).slice().reverse().forEach(function (f) {
             var tr = document.createElement("tr");
             tr.innerHTML =
-              "<td>" + (f.epoch ? fmtEpoch(f.epoch) : fmtUptime(f.uptimeS)) + "</td>" +
-              "<td>" + (f.kind || "") + "</td>" +
-              "<td>" + (f.detail || "") + "</td>" +
-              "<td>" + (f.code !== undefined && f.code >= 0 ? f.code : "—") + "</td>";
+              "<td>" + esc(f.epoch ? fmtEpoch(f.epoch) : fmtUptime(f.uptimeS)) + "</td>" +
+              "<td>" + esc(f.kind || "") + "</td>" +
+              "<td>" + esc(f.detail || "") + "</td>" +
+              "<td>" + esc(f.code !== undefined && f.code >= 0 ? f.code : "—") + "</td>";
             ftbody.appendChild(tr);
           });
         }
@@ -192,24 +199,41 @@
       var r = (window._diagReports || [])[parseInt(t.dataset.rpt, 10)];
       var box = document.getElementById("diagReportDetail");
       if (!box || !r) return;
+      box.innerHTML = "";
+      var h3 = document.createElement("h3");
+      h3.textContent = "Report detail";
+      box.appendChild(h3);
+      var heap = document.createElement("pre");
+      heap.className = "mono";
+      heap.textContent =
+        "Heap free " + (r.heapFree != null ? r.heapFree : "—") +
+        " min " + (r.heapMin != null ? r.heapMin : "—") +
+        " · PSRAM " + (r.psramFree != null ? r.psramFree : "—") +
+        " · RSSI " + (r.rssi != null ? r.rssi : "—");
+      box.appendChild(heap);
+      var linesPre = document.createElement("pre");
+      linesPre.className = "mono log-detail";
+      linesPre.textContent = (r.prevLines || []).join("\n");
+      box.appendChild(linesPre);
       var cd = r.coredump;
-      var cdText = typeof cd === "string" ? cd : JSON.stringify(cd, null, 2);
-      var hint = cd && cd.decodeHint ? cd.decodeHint : "";
-      box.innerHTML =
-        "<h3>Report detail</h3>" +
-        "<pre class=\"mono\">Heap free " + (r.heapFree || "—") + " min " + (r.heapMin || "—") +
-        " · PSRAM " + (r.psramFree || "—") + " · RSSI " + (r.rssi || "—") + "</pre>" +
-        "<pre class=\"mono log-detail\">" + (r.prevLines || []).join("\n") + "</pre>" +
-        "<pre class=\"mono\">" + cdText + "</pre>" +
-        (hint ? "<button type=\"button\" class=\"common-btn\" id=\"diagCopyDecode\">Copy decode command</button>" : "");
-      box.style.display = "block";
-      var btn = document.getElementById("diagCopyDecode");
-      if (btn) {
+      var cdPre = document.createElement("pre");
+      cdPre.className = "mono";
+      if (typeof cd === "string") cdPre.textContent = cd;
+      else cdPre.textContent = JSON.stringify(cd, null, 2);
+      box.appendChild(cdPre);
+      var hint = cd && typeof cd === "object" && cd.decodeHint ? cd.decodeHint : "";
+      if (hint) {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "common-btn";
+        btn.textContent = "Copy decode command";
         btn.onclick = function () {
           navigator.clipboard.writeText(hint).catch(function () {});
           toast("Copied", "ok");
         };
+        box.appendChild(btn);
       }
+      box.style.display = "block";
     }
   });
 

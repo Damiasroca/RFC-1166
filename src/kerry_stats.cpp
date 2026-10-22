@@ -1,10 +1,12 @@
 #include "kerry_stats.h"
 
+#include "kerry_diag_fs.h"
+#include "kerry_log.h"
 #include "kerry_postmortem.h"
 
 #include <Preferences.h>
+#include <nvs.h>
 
-#include <esp_attr.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
@@ -23,13 +25,21 @@ typedef struct {
   int code;
 } kerry_fail_entry_t;
 
+typedef struct {
+  uint8_t head;
+  uint8_t count;
+  kerry_fail_entry_t entries[FAIL_RING];
+} kerry_fail_blob_t;
+
 static kerry_stats_counts_t s_lifetime;
+static kerry_stats_counts_t s_sinceBoot;
 static kerry_fail_entry_t s_fails[FAIL_RING];
 static uint8_t s_failHead = 0;
 static uint8_t s_failCount = 0;
 static SemaphoreHandle_t s_failMu;
 static portMUX_TYPE s_statsMux = portMUX_INITIALIZER_UNLOCKED;
 static bool s_dirty = false;
+static bool s_failsDirty = false;
 
 static uint32_t nowEpoch() {
   time_t t = 0;
@@ -56,28 +66,49 @@ static void addCounts(kerry_stats_counts_t *dst, const kerry_stats_counts_t *src
   dst->wdHeld += src->wdHeld;
 }
 
+static bool nvsWriteOk() {
+  nvs_stats_t st;
+  if (nvs_get_stats(nullptr, &st) != ESP_OK) return true;
+  return st.free_entries >= 40;
+}
+
 static void loadLifetime() {
   Preferences prefs;
   if (!prefs.begin(KSTATS_NS, true)) return;
   uint8_t ver = prefs.getUChar("ver", 0);
   if (ver == KSTATS_VER) prefs.getBytes("life", &s_lifetime, sizeof s_lifetime);
-  size_t flen = prefs.getBytesLength("fails");
-  if (flen == sizeof s_fails) prefs.getBytes("fails", s_fails, sizeof s_fails);
-  s_failHead = prefs.getUChar("fHead", 0);
-  s_failCount = prefs.getUChar("fCount", 0);
-  if (s_failCount > FAIL_RING) s_failCount = FAIL_RING;
   prefs.end();
 }
 
-static void saveLifetime() {
+static void saveLifetimeNvs() {
+  if (!nvsWriteOk()) {
+    if (kerry_log_every_ms("kstats_nvs_low", 60000)) KERRY_LOGW("kstats", "NVS low, skipping lifetime save");
+    return;
+  }
   Preferences prefs;
   if (!prefs.begin(KSTATS_NS, false)) return;
   prefs.putUChar("ver", KSTATS_VER);
   prefs.putBytes("life", &s_lifetime, sizeof s_lifetime);
-  prefs.putBytes("fails", s_fails, sizeof s_fails);
-  prefs.putUChar("fHead", s_failHead);
-  prefs.putUChar("fCount", s_failCount);
   prefs.end();
+}
+
+static void loadFailsBlob() {
+  kerry_fail_blob_t blob;
+  memset(&blob, 0, sizeof blob);
+  if (!kerryDiagLoadFails(&blob, sizeof blob)) return;
+  if (blob.count > FAIL_RING) blob.count = FAIL_RING;
+  s_failHead = blob.head;
+  s_failCount = blob.count;
+  memcpy(s_fails, blob.entries, sizeof s_fails);
+}
+
+static void saveFailsBlob() {
+  if (!s_failsDirty) return;
+  kerry_fail_blob_t blob;
+  blob.head = s_failHead;
+  blob.count = s_failCount;
+  memcpy(blob.entries, s_fails, sizeof s_fails);
+  if (kerryDiagSaveFails(&blob, sizeof blob)) s_failsDirty = false;
 }
 
 static void noteFail(const char *kind, const char *detail, int code) {
@@ -93,88 +124,63 @@ static void noteFail(const char *kind, const char *detail, int code) {
   e->detail[sizeof e->detail - 1] = '\0';
   s_failHead = (uint8_t)((s_failHead + 1) % FAIL_RING);
   if (s_failCount < FAIL_RING) s_failCount++;
+  s_failsDirty = true;
   xSemaphoreGive(s_failMu);
 }
 
-static void countsJson(const kerry_stats_counts_t *c, JsonObject obj) {
-  obj["upAttempts"] = c->upAttempts;
-  obj["upOk"] = c->upOk;
-  obj["upSkippedNet"] = c->upSkippedNet;
-  obj["upCaptureFail"] = c->upCaptureFail;
-  obj["upOom"] = c->upOom;
-  obj["upHttp4xx"] = c->upHttp4xx;
-  obj["upHttp5xx"] = c->upHttp5xx;
-  obj["upHttpOther"] = c->upHttpOther;
-  obj["upNoConn"] = c->upNoConn;
-  obj["ecoAttempts"] = c->ecoAttempts;
-  obj["ecoOk"] = c->ecoOk;
-  obj["ecoFail"] = c->ecoFail;
-  obj["camFail"] = c->camFail;
-  obj["camReinit"] = c->camReinit;
-  obj["wdReboots"] = c->wdReboots;
-  obj["wdHeld"] = c->wdHeld;
-}
-
-void kerryStatsBoot(bool mergePrevSession) {
-  if (!s_failMu) s_failMu = xSemaphoreCreateMutex();
-  loadLifetime();
-  if (mergePrevSession) {
-    const kerry_pm_rtc_t *prev = kerryPmPrevious();
-    if (prev) {
-      addCounts(&s_lifetime, &prev->stats.counts);
-      saveLifetime();
-    }
-  }
-  kerry_stats_session_t *sess = kerryStatsSessionPtr();
-  if (sess) memset(sess, 0, sizeof *sess);
-}
-
-void kerryStatsNote(kerry_stat_event_t ev, const char *detail, int code) {
-  kerry_stats_session_t *sess = kerryStatsSessionPtr();
-  if (!sess) return;
-  portENTER_CRITICAL(&s_statsMux);
-  kerry_stats_counts_t *c = &sess->counts;
+static void applyEvent(kerry_stat_event_t ev, kerry_stats_counts_t *c, kerry_stats_session_t *sess, const char *detail,
+                       int code) {
   switch (ev) {
     case KERRY_SE_UP_ATTEMPT:
       c->upAttempts++;
       break;
     case KERRY_SE_UP_OK:
       c->upOk++;
-      sess->upStreak = 0;
-      sess->lastUpOkEpoch = nowEpoch();
+      if (sess) {
+        sess->upStreak = 0;
+        sess->lastUpOkEpoch = nowEpoch();
+      }
       break;
     case KERRY_SE_UP_SKIP_NET:
       c->upSkippedNet++;
       break;
     case KERRY_SE_UP_CAPTURE_FAIL:
       c->upCaptureFail++;
-      sess->upStreak++;
-      if (sess->upStreak > sess->upLongestStreak) sess->upLongestStreak = sess->upStreak;
-      sess->lastUpFailEpoch = nowEpoch();
-      if (detail) strncpy(sess->lastUpFailText, detail, sizeof sess->lastUpFailText - 1);
+      if (sess) {
+        sess->upStreak++;
+        if (sess->upStreak > sess->upLongestStreak) sess->upLongestStreak = sess->upStreak;
+        sess->lastUpFailEpoch = nowEpoch();
+        if (detail) strncpy(sess->lastUpFailText, detail, sizeof sess->lastUpFailText - 1);
+      }
       break;
     case KERRY_SE_UP_OOM:
       c->upOom++;
-      sess->upStreak++;
-      if (sess->upStreak > sess->upLongestStreak) sess->upLongestStreak = sess->upStreak;
-      sess->lastUpFailEpoch = nowEpoch();
-      if (detail) strncpy(sess->lastUpFailText, detail, sizeof sess->lastUpFailText - 1);
+      if (sess) {
+        sess->upStreak++;
+        if (sess->upStreak > sess->upLongestStreak) sess->upLongestStreak = sess->upStreak;
+        sess->lastUpFailEpoch = nowEpoch();
+        if (detail) strncpy(sess->lastUpFailText, detail, sizeof sess->lastUpFailText - 1);
+      }
       break;
     case KERRY_SE_UP_HTTP:
       if (code >= 400 && code < 500) c->upHttp4xx++;
       else if (code >= 500 && code < 600) c->upHttp5xx++;
       else c->upHttpOther++;
-      sess->upStreak++;
-      if (sess->upStreak > sess->upLongestStreak) sess->upLongestStreak = sess->upStreak;
-      sess->lastUpFailEpoch = nowEpoch();
-      if (detail) strncpy(sess->lastUpFailText, detail, sizeof sess->lastUpFailText - 1);
+      if (sess) {
+        sess->upStreak++;
+        if (sess->upStreak > sess->upLongestStreak) sess->upLongestStreak = sess->upStreak;
+        sess->lastUpFailEpoch = nowEpoch();
+        if (detail) strncpy(sess->lastUpFailText, detail, sizeof sess->lastUpFailText - 1);
+      }
       break;
     case KERRY_SE_UP_NO_CONN:
       c->upNoConn++;
-      sess->upStreak++;
-      if (sess->upStreak > sess->upLongestStreak) sess->upLongestStreak = sess->upStreak;
-      sess->lastUpFailEpoch = nowEpoch();
-      if (detail) strncpy(sess->lastUpFailText, detail, sizeof sess->lastUpFailText - 1);
+      if (sess) {
+        sess->upStreak++;
+        if (sess->upStreak > sess->upLongestStreak) sess->upLongestStreak = sess->upStreak;
+        sess->lastUpFailEpoch = nowEpoch();
+        if (detail) strncpy(sess->lastUpFailText, detail, sizeof sess->lastUpFailText - 1);
+      }
       break;
     case KERRY_SE_ECO_ATTEMPT:
       c->ecoAttempts++;
@@ -198,8 +204,51 @@ void kerryStatsNote(kerry_stat_event_t ev, const char *detail, int code) {
       c->wdHeld++;
       break;
   }
-  portEXIT_CRITICAL(&s_statsMux);
+}
+
+static void countsJson(const kerry_stats_counts_t *c, JsonObject obj) {
+  obj["upAttempts"] = c->upAttempts;
+  obj["upOk"] = c->upOk;
+  obj["upSkippedNet"] = c->upSkippedNet;
+  obj["upCaptureFail"] = c->upCaptureFail;
+  obj["upOom"] = c->upOom;
+  obj["upHttp4xx"] = c->upHttp4xx;
+  obj["upHttp5xx"] = c->upHttp5xx;
+  obj["upHttpOther"] = c->upHttpOther;
+  obj["upNoConn"] = c->upNoConn;
+  obj["ecoAttempts"] = c->ecoAttempts;
+  obj["ecoOk"] = c->ecoOk;
+  obj["ecoFail"] = c->ecoFail;
+  obj["camFail"] = c->camFail;
+  obj["camReinit"] = c->camReinit;
+  obj["wdReboots"] = c->wdReboots;
+  obj["wdHeld"] = c->wdHeld;
+}
+
+void kerryStatsBoot(bool mergePrevSession) {
+  if (!s_failMu) s_failMu = xSemaphoreCreateMutex();
+  memset(&s_sinceBoot, 0, sizeof s_sinceBoot);
+  loadLifetime();
+  loadFailsBlob();
+  if (mergePrevSession) {
+    const kerry_pm_rtc_t *prev = kerryPmPrevious();
+    if (prev) {
+      addCounts(&s_lifetime, &prev->stats.counts);
+      saveLifetimeNvs();
+    }
+  }
+  kerry_stats_session_t *sess = kerryStatsSessionPtr();
+  if (sess) memset(sess, 0, sizeof *sess);
+}
+
+void kerryStatsNote(kerry_stat_event_t ev, const char *detail, int code) {
+  kerry_stats_session_t *sess = kerryStatsSessionPtr();
+  if (!sess) return;
+  portENTER_CRITICAL(&s_statsMux);
+  applyEvent(ev, &sess->counts, sess, detail, code);
+  applyEvent(ev, &s_sinceBoot, nullptr, detail, code);
   s_dirty = true;
+  portEXIT_CRITICAL(&s_statsMux);
   const char *failKind = nullptr;
   switch (ev) {
     case KERRY_SE_UP_CAPTURE_FAIL:
@@ -229,38 +278,51 @@ void kerryStatsNote(kerry_stat_event_t ev, const char *detail, int code) {
 void kerryStatsFlush() {
   kerry_stats_session_t *sess = kerryStatsSessionPtr();
   if (!sess) return;
+  bool dirty = false;
   portENTER_CRITICAL(&s_statsMux);
-  addCounts(&s_lifetime, &sess->counts);
-  memset(&sess->counts, 0, sizeof sess->counts);
+  dirty = s_dirty;
+  if (s_dirty) {
+    addCounts(&s_lifetime, &sess->counts);
+    memset(&sess->counts, 0, sizeof sess->counts);
+    s_dirty = false;
+  }
   portEXIT_CRITICAL(&s_statsMux);
-  saveLifetime();
-  s_dirty = false;
+  if (!dirty && !s_failsDirty) return;
+  if (dirty) saveLifetimeNvs();
+  saveFailsBlob();
 }
 
 const char *kerryStatsReset() {
   memset(&s_lifetime, 0, sizeof s_lifetime);
+  memset(&s_sinceBoot, 0, sizeof s_sinceBoot);
   memset(s_fails, 0, sizeof s_fails);
   s_failHead = 0;
   s_failCount = 0;
   kerry_stats_session_t *sess = kerryStatsSessionPtr();
   if (sess) memset(sess, 0, sizeof *sess);
-  saveLifetime();
+  saveLifetimeNvs();
+  s_failsDirty = true;
+  saveFailsBlob();
+  portENTER_CRITICAL(&s_statsMux);
   s_dirty = false;
+  portEXIT_CRITICAL(&s_statsMux);
   return nullptr;
 }
 
 void kerryStatsFillJson(JsonDocument &doc) {
   kerry_stats_session_t snap = {};
+  kerry_stats_counts_t rtcDelta = {};
   kerry_stats_session_t *sess = kerryStatsSessionPtr();
   if (sess) {
     portENTER_CRITICAL(&s_statsMux);
     snap = *sess;
+    rtcDelta = sess->counts;
     portEXIT_CRITICAL(&s_statsMux);
   }
   kerry_stats_counts_t life = s_lifetime;
-  addCounts(&life, &snap.counts);
+  addCounts(&life, &rtcDelta);
   countsJson(&life, doc["lifetime"].to<JsonObject>());
-  countsJson(&snap.counts, doc["session"].to<JsonObject>());
+  countsJson(&s_sinceBoot, doc["session"].to<JsonObject>());
   doc["upStreak"] = snap.upStreak;
   doc["upLongestStreak"] = snap.upLongestStreak;
   doc["lastUpOkEpoch"] = snap.lastUpOkEpoch;

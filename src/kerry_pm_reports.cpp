@@ -1,13 +1,14 @@
 #include "kerry_postmortem.h"
 
+#include "kerry_diag_fs.h"
 #include "kerry_log.h"
-#include "kerry_time.h"
 #include "kerry_version.h"
 
 #include <ArduinoJson.h>
 #include <Preferences.h>
 #include <nvs.h>
 
+#include <esp_partition.h>
 #include <esp_system.h>
 
 #if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH && CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF
@@ -19,11 +20,11 @@
 
 #define KPM_NS "kpm"
 #define REPORT_MAX 2600
-#define REPORT_SLOTS 3
 
 static uint32_t s_bootSeq = 0;
 static char s_curReport[REPORT_MAX];
 static bool s_haveCurReport = false;
+static bool s_eraseCoredump = false;
 
 static const char *resetName(esp_reset_reason_t r) {
   switch (r) {
@@ -99,8 +100,14 @@ static void appendPrevLines(JsonArray lines, const kerry_pm_rtc_t *pm) {
   }
 }
 
+static void appendCoredump(JsonObject obj, const kerry_pm_rtc_t *prev) {
 #if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH && CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF
-static void appendCoredump(JsonObject obj) {
+  const esp_partition_t *part =
+      esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_COREDUMP, nullptr);
+  if (!part) {
+    obj["coredump"] = "no coredump partition";
+    return;
+  }
   if (esp_core_dump_image_check() != ESP_OK) {
     obj["coredump"] = "none";
     return;
@@ -114,6 +121,8 @@ static void appendCoredump(JsonObject obj) {
   JsonObject cd = obj["coredump"].to<JsonObject>();
   cd["task"] = sum.exc_task;
   cd["pc"] = sum.exc_pc;
+  cd["excCause"] = sum.ex_info.exc_cause;
+  cd["excVaddr"] = sum.ex_info.exc_vaddr;
   cd["corrupted"] = sum.exc_bt_info.corrupted;
   JsonArray bt = cd["backtrace"].to<JsonArray>();
   for (int i = 0; i < sum.exc_bt_info.depth && i < 32; i++) bt.add(sum.exc_bt_info.bt[i]);
@@ -126,15 +135,20 @@ static void appendCoredump(JsonObject obj) {
 #else
   const char *tool = "xtensa-esp32-elf-addr2line";
 #endif
-  char hint[320];
-  snprintf(hint, sizeof hint, "%s -pfiaC -e firmware.elf 0x%lx", tool, (unsigned long)sum.exc_pc);
+  char hint[512];
+  int off = snprintf(hint, sizeof hint, "%s -pfiaC -e firmware.elf 0x%lx", tool, (unsigned long)sum.exc_pc);
+  for (int i = 0; i < sum.exc_bt_info.depth && i < 32 && off > 0 && off < (int)sizeof hint - 16; i++) {
+    off += snprintf(hint + off, sizeof hint - (size_t)off, " 0x%lx", (unsigned long)sum.exc_bt_info.bt[i]);
+  }
   cd["decodeHint"] = hint;
-  cd["fwGit"] = kerryFirmwareGit();
-  esp_core_dump_image_erase();
-}
+  if (prev && prev->fwGit[0]) cd["fwGit"] = prev->fwGit;
+  else cd["fwGit"] = "unknown";
+  s_eraseCoredump = true;
 #else
-static void appendCoredump(JsonObject obj) { obj["coredump"] = "not enabled in this build"; }
+  (void)prev;
+  obj["coredump"] = "not enabled in this build";
 #endif
+}
 
 static void truncateLines(JsonDocument &doc) {
   while (doc.overflowed() || measureJson(doc) > REPORT_MAX) {
@@ -144,21 +158,10 @@ static void truncateLines(JsonDocument &doc) {
   }
 }
 
-static void storeReport(const char *json, size_t len) {
+static bool nvsCountersOk() {
   nvs_stats_t st;
-  if (nvs_get_stats(KPM_NS, &st) == ESP_OK && st.free_entries < 4) {
-    KERRY_LOGW("kpm", "NVS full, skipping boot report store");
-    return;
-  }
-  Preferences prefs;
-  if (!prefs.begin(KPM_NS, false)) return;
-  uint8_t head = prefs.getUChar("head", 0) % REPORT_SLOTS;
-  char key[4];
-  snprintf(key, sizeof key, "r%u", (unsigned)head);
-  if (len > REPORT_MAX) len = REPORT_MAX;
-  prefs.putBytes(key, json, len);
-  prefs.putUChar("head", (uint8_t)((head + 1) % REPORT_SLOTS));
-  prefs.end();
+  if (nvs_get_stats(nullptr, &st) != ESP_OK) return true;
+  return st.free_entries >= 40;
 }
 
 static void bumpCounter(Preferences &prefs, const char *key) {
@@ -167,29 +170,35 @@ static void bumpCounter(Preferences &prefs, const char *key) {
 }
 
 void kerryPmReportsInit() {
+  s_eraseCoredump = false;
   esp_reset_reason_t rr = esp_reset_reason();
   const kerry_pm_rtc_t *prev = kerryPmPrevious();
   bool deliberate = (rr == ESP_RST_SW) && prev && prev->cause[0];
 
-  Preferences prefs;
-  prefs.begin(KPM_NS, false);
-  s_bootSeq = prefs.getUInt("bootSeq", 0) + 1;
-  prefs.putUInt("bootSeq", s_bootSeq);
-  bumpCounter(prefs, "n_total");
-  char rkey[16];
-  snprintf(rkey, sizeof rkey, "n_%s", resetName(rr));
-  if (strlen(rkey) > 15) rkey[15] = '\0';
-  bumpCounter(prefs, rkey);
-  const char *cls = classify(rr, deliberate);
-  if (strcmp(cls, "deliberate") == 0) bumpCounter(prefs, "n_deliberate");
-  else if (strcmp(cls, "crash") == 0) bumpCounter(prefs, "n_crash");
-  else if (strcmp(cls, "power") == 0) bumpCounter(prefs, "n_power");
-  prefs.end();
+  if (nvsCountersOk()) {
+    Preferences prefs;
+    if (prefs.begin(KPM_NS, false)) {
+      s_bootSeq = prefs.getUInt("bootSeq", 0) + 1;
+      prefs.putUInt("bootSeq", s_bootSeq);
+      bumpCounter(prefs, "n_total");
+      char rkey[16];
+      snprintf(rkey, sizeof rkey, "n_%s", resetName(rr));
+      if (strlen(rkey) > 15) rkey[15] = '\0';
+      bumpCounter(prefs, rkey);
+      const char *cls = classify(rr, deliberate);
+      if (strcmp(cls, "deliberate") == 0) bumpCounter(prefs, "n_deliberate");
+      else if (strcmp(cls, "crash") == 0) bumpCounter(prefs, "n_crash");
+      else if (strcmp(cls, "power") == 0) bumpCounter(prefs, "n_power");
+      prefs.end();
+    }
+  } else if (kerry_log_every_ms("kpm_nvs_low", 60000)) {
+    KERRY_LOGW("kpm", "NVS low, skipping reset counter update");
+  }
 
   JsonDocument doc;
   doc["bootSeq"] = s_bootSeq;
   doc["reason"] = resetName(rr);
-  doc["class"] = cls;
+  doc["class"] = classify(rr, deliberate);
   doc["bootTime"] = 0;
   if (deliberate && prev) doc["cause"] = prev->cause;
   if (prev && kerryPmHadValidPrevious()) {
@@ -209,13 +218,16 @@ void kerryPmReportsInit() {
     doc["fwVersion"] = prev->fwVersion;
     appendPrevLines(doc["prevLines"].to<JsonArray>(), prev);
   }
-  appendCoredump(doc.to<JsonObject>());
+  appendCoredump(doc.to<JsonObject>(), prev);
   truncateLines(doc);
   s_haveCurReport = false;
   size_t n = serializeJson(doc, s_curReport, sizeof s_curReport);
   if (n > 0) {
     s_haveCurReport = true;
-    storeReport(s_curReport, n);
+    kerryDiagStoreReport(s_bootSeq, s_curReport, n);
+#if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH && CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF
+    if (s_eraseCoredump) esp_core_dump_image_erase();
+#endif
   }
 }
 
@@ -229,19 +241,13 @@ void kerryPmReportsOnClockSync() {
   doc["bootTime"] = (uint32_t)now;
   size_t n = serializeJson(doc, s_curReport, sizeof s_curReport);
   if (n == 0) return;
-  Preferences prefs;
-  if (!prefs.begin(KPM_NS, false)) return;
-  uint8_t head = prefs.getUChar("head", 0);
-  uint8_t slot = (uint8_t)((head + REPORT_SLOTS - 1) % REPORT_SLOTS);
-  char key[4];
-  snprintf(key, sizeof key, "r%u", (unsigned)slot);
-  prefs.putBytes(key, s_curReport, n);
-  prefs.end();
+  kerryDiagUpdateReport(s_bootSeq, s_curReport, n);
 }
 
 void kerryPmFillReportsJson(JsonDocument &doc) {
   doc["bootSeq"] = s_bootSeq;
   doc["reason"] = resetName(esp_reset_reason());
+  doc["storage"] = kerryDiagStorageLabel();
   bool deliberate = false;
   const kerry_pm_rtc_t *prev = kerryPmPrevious();
   if (esp_reset_reason() == ESP_RST_SW && prev && prev->cause[0]) deliberate = true;
@@ -270,35 +276,16 @@ void kerryPmFillReportsJson(JsonDocument &doc) {
     }
     prefs.end();
   }
-  JsonArray reports = doc["reports"].to<JsonArray>();
-  if (prefs.begin(KPM_NS, true)) {
-    uint8_t head = prefs.getUChar("head", 0);
-    for (int i = REPORT_SLOTS - 1; i >= 0; i--) {
-      uint8_t slot = (uint8_t)((head + REPORT_SLOTS - 1 - (uint8_t)i) % REPORT_SLOTS);
-      char key[4];
-      snprintf(key, sizeof key, "r%u", (unsigned)slot);
-      size_t len = prefs.getBytesLength(key);
-      if (len == 0 || len > REPORT_MAX) continue;
-      char *buf = (char *)malloc(len + 1);
-      if (!buf) continue;
-      prefs.getBytes(key, buf, len);
-      buf[len] = '\0';
-      JsonDocument one;
-      if (!deserializeJson(one, buf)) {
-        JsonObject o = reports.add<JsonObject>();
-        o.set(one.as<JsonObjectConst>());
-      }
-      free(buf);
-    }
-    prefs.end();
-  }
+  kerryDiagListReports(doc["reports"].to<JsonArray>());
 }
 
 void kerryPmClearReportsAndCounters() {
   Preferences prefs;
-  if (!prefs.begin(KPM_NS, false)) return;
-  prefs.clear();
-  prefs.end();
+  if (prefs.begin(KPM_NS, false)) {
+    prefs.clear();
+    prefs.end();
+  }
+  kerryDiagClearReports();
   s_bootSeq = 0;
   s_haveCurReport = false;
   s_curReport[0] = '\0';

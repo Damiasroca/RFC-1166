@@ -7,6 +7,8 @@
 #include "kerry_log_history.h"
 #include "kerry_web_util.h"
 
+#include <esp_heap_caps.h>
+
 #include <ArduinoJson.h>
 
 #include <stdlib.h>
@@ -67,6 +69,45 @@ static esp_err_t apiStatsPost(httpd_req_t *req) {
   return sendJson(req, out);
 }
 
+static esp_err_t flushChunk(httpd_req_t *req, const char *buf, size_t n) {
+  if (!n) return ESP_OK;
+  return httpd_resp_send_chunk(req, buf, n);
+}
+
+static esp_err_t sendJsonString(httpd_req_t *req, const char *s, size_t n) {
+  char batch[256];
+  size_t bi = 0;
+  if (httpd_resp_sendstr_chunk(req, "\"") != ESP_OK) return ESP_FAIL;
+  for (size_t i = 0; i < n; i++) {
+    char c = s[i];
+    const char *esc = nullptr;
+    char ubuf[8];
+    if (c == '"') esc = "\\\"";
+    else if (c == '\\') esc = "\\\\";
+    else if ((unsigned char)c < 0x20) {
+      snprintf(ubuf, sizeof ubuf, "\\u%04x", (unsigned)c);
+      esc = ubuf;
+    }
+    if (esc) {
+      size_t el = strlen(esc);
+      if (bi + el >= sizeof batch) {
+        if (flushChunk(req, batch, bi) != ESP_OK) return ESP_FAIL;
+        bi = 0;
+      }
+      memcpy(batch + bi, esc, el);
+      bi += el;
+    } else {
+      if (bi + 1 >= sizeof batch) {
+        if (flushChunk(req, batch, bi) != ESP_OK) return ESP_FAIL;
+        bi = 0;
+      }
+      batch[bi++] = c;
+    }
+  }
+  if (bi && flushChunk(req, batch, bi) != ESP_OK) return ESP_FAIL;
+  return httpd_resp_sendstr_chunk(req, "\"");
+}
+
 static esp_err_t apiLogGet(httpd_req_t *req) {
   if (!requireAuth(req, true)) return ESP_OK;
   char q[32];
@@ -75,45 +116,46 @@ static esp_err_t apiLogGet(httpd_req_t *req) {
     char val[16];
     if (httpd_query_key_value(q, "since", val, sizeof val) == ESP_OK) since = (uint32_t)strtoul(val, nullptr, 10);
   }
-  static char chunkBuf[16384];
+  size_t cap = 16384;
+  char *buf = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!buf) {
+    cap = 4096;
+    buf = (char *)malloc(cap);
+  }
+  if (!buf) {
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    return httpd_resp_sendstr(req, "Out of memory");
+  }
   uint32_t lastSeq = since;
   bool truncated = false;
-  size_t n = kerryLogHistoryRead(since, chunkBuf, sizeof chunkBuf, &lastSeq, &truncated);
-  JsonDocument doc;
-  doc["lastSeq"] = lastSeq;
-  doc["truncated"] = truncated;
-  JsonArray lines = doc["lines"].to<JsonArray>();
-  const char *p = chunkBuf;
-  while (p < chunkBuf + n) {
-    const char *nl = (const char *)memchr(p, '\n', (size_t)(chunkBuf + n - p));
-    if (!nl) break;
-    lines.add(String(p, nl - p));
-    p = nl + 1;
-  }
-  String body;
-  serializeJson(doc, body);
-  if (body.length() <= sizeof chunkBuf) {
-    httpd_resp_set_type(req, "application/json");
-    return httpd_resp_sendstr(req, body.c_str());
-  }
+  size_t n = kerryLogHistoryRead(since, buf, cap, &lastSeq, &truncated);
   httpd_resp_set_type(req, "application/json");
-  httpd_resp_sendstr_chunk(req, "{\"lines\":[");
+  if (httpd_resp_sendstr_chunk(req, "{\"lines\":[") != ESP_OK) {
+    free(buf);
+    return ESP_FAIL;
+  }
   bool first = true;
-  p = chunkBuf;
-  while (p < chunkBuf + n) {
-    const char *nl = (const char *)memchr(p, '\n', (size_t)(chunkBuf + n - p));
+  const char *p = buf;
+  while (p < buf + n) {
+    const char *nl = (const char *)memchr(p, '\n', (size_t)(buf + n - p));
     if (!nl) break;
-    if (!first) httpd_resp_sendstr_chunk(req, ",");
+    if (!first && httpd_resp_sendstr_chunk(req, ",") != ESP_OK) {
+      free(buf);
+      return ESP_FAIL;
+    }
     first = false;
-    httpd_resp_sendstr_chunk(req, "\"");
-    httpd_resp_send_chunk(req, p, (size_t)(nl - p));
-    httpd_resp_sendstr_chunk(req, "\"");
+    if (sendJsonString(req, p, (size_t)(nl - p)) != ESP_OK) {
+      free(buf);
+      return ESP_FAIL;
+    }
     p = nl + 1;
   }
   char tail[64];
   snprintf(tail, sizeof tail, "],\"lastSeq\":%lu,\"truncated\":%s}", (unsigned long)lastSeq, truncated ? "true" : "false");
-  httpd_resp_sendstr_chunk(req, tail);
-  return httpd_resp_sendstr_chunk(req, nullptr);
+  esp_err_t err = httpd_resp_sendstr_chunk(req, tail);
+  if (err == ESP_OK) err = httpd_resp_sendstr_chunk(req, nullptr);
+  free(buf);
+  return err;
 }
 
 void kerryWebDiagApiRegister(httpd_handle_t server) {

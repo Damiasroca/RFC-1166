@@ -3,8 +3,6 @@
 #include "ws_log.h"
 
 #include "kerry_log.h"
-#include "kerry_log_history.h"
-#include "kerry_postmortem.h"
 
 #include <esp_http_server.h>
 #include <esp_log.h>
@@ -102,24 +100,21 @@ static int ring_pop(char *out, int cap) {
 }
 
 static int ws_vprintf(const char *fmt, va_list ap) {
-  if (s_run) {
-    char line[LOG_LINE_MAX];
-    va_list copy;
-    va_copy(copy, ap);
-    int n = vsnprintf(line, sizeof line, fmt, copy);
-    va_end(copy);
-    if (n > 0) {
-      if (n >= (int)sizeof line) {
-        line[sizeof line - 2] = '\n';
-        n = (int)sizeof line - 1;
-        line[n] = 0;
-      }
-      if ((uint8_t)line_level(line) <= s_level && !skip_send(line)) {
-        kerryPmLogLine(line, n);
-        kerryLogHistoryWrite(line, n);
-        ring_put(line, n);
-        if (s_task) xTaskNotifyGive(s_task);
-      }
+  char line[LOG_LINE_MAX];
+  va_list copy;
+  va_copy(copy, ap);
+  int n = vsnprintf(line, sizeof line, fmt, copy);
+  va_end(copy);
+  if (n > 0) {
+    if (n >= (int)sizeof line) {
+      line[sizeof line - 2] = '\n';
+      n = (int)sizeof line - 1;
+      line[n] = 0;
+    }
+    kerryLogSink(line, n);
+    if (s_run && (uint8_t)line_level(line) <= s_level && !skip_send(line)) {
+      ring_put(line, n);
+      if (s_task) xTaskNotifyGive(s_task);
     }
   }
   return vprintf(fmt, ap);
