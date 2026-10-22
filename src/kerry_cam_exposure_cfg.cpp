@@ -19,6 +19,14 @@ kerry_cam_exp_cfg_t kerryCamExposureDefaultCfg() {
   return cfg;
 }
 
+void kerryCamExposureDayCfg(const kerry_cam_exp_cfg_t *base, kerry_cam_exp_cfg_t *out) {
+  *out = *base;
+  out->aecOn = true;
+  out->agcOn = true;
+  out->clkrc = KERRY_EXP_CLKRC_SENTINEL;
+  out->dummyLines = 0;
+}
+
 bool kerryCamExposureCfgEqual(const kerry_cam_exp_cfg_t *a, const kerry_cam_exp_cfg_t *b) {
   return a->aecOn == b->aecOn && a->aecValue == b->aecValue && a->aec2On == b->aec2On && a->aeLevel == b->aeLevel &&
          a->agcOn == b->agcOn && a->agcGain == b->agcGain && a->gainCeiling == b->gainCeiling && a->clkrc == b->clkrc &&

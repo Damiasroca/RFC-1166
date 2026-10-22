@@ -412,6 +412,42 @@ const char *kerryCamReapplyExposure() {
   return err;
 }
 
+const char *kerryCamApplyExposureCfg(const kerry_cam_exp_cfg_t *cfg) {
+  if (!cfg) return "Camera not ready";
+  if (!lockCam(3000)) return "Camera busy";
+  if (!cameraReady) {
+    unlockCam();
+    return "Camera not ready";
+  }
+  sensor_t *s = esp_camera_sensor_get();
+  uint16_t pid = s ? s->id.PID : 0;
+  const char *err = kerryCamExposureCfgValidate(cfg, pid, effectiveFrameSize());
+  if (err) {
+    unlockCam();
+    return err;
+  }
+  kerry_cam_exp_cfg_t prev;
+  if (!kerryCamExpStoreReplace(cfg, &prev)) {
+    unlockCam();
+    return "Settings save in progress";
+  }
+  err = kerryCamExposureApply(true);
+  if (err) {
+    kerry_cam_exp_cfg_t ignored;
+    if (!kerryCamExpStoreReplace(&prev, &ignored)) {
+      KERRY_LOGW("exposure", "could not restore previous exposure");
+    } else {
+      const char *err2 = kerryCamExposureApply(true);
+      if (err2) KERRY_LOGW("exposure", "restore apply failed: %s", err2);
+    }
+    unlockCam();
+    return err;
+  }
+  unlockCam();
+  kerryCamExposureSave();
+  return nullptr;
+}
+
 static void serviceExposureRevertIfNeeded() {
   if (!kerryCamExposureRevertPending()) return;
   if (!lockCam(2000)) return;
@@ -1079,6 +1115,15 @@ int kerryCamDiscardFrames(int count, uint32_t *tsMs, int tsCap) {
 }
 
 bool kerryCameraReady() { return cameraReady; }
+
+bool kerryCamSamplingAllowed() {
+  if (!kerryCameraReady()) return false;
+  if (kerryStreamActive() || kerryCamGrabActive()) return false;
+  const char *blocked = nullptr;
+  if (kerryCaptureBlocked(&blocked)) return false;
+  if (kerryEcoNetBusy() || kerryUploadInProgress()) return false;
+  return true;
+}
 
 const char *kerryCameraSensorName() {
   if (!cameraReady) return "Not detected";

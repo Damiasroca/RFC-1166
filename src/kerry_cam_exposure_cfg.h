@@ -20,6 +20,7 @@ typedef struct {
 } kerry_cam_exp_cfg_t;
 
 kerry_cam_exp_cfg_t kerryCamExposureDefaultCfg();
+void kerryCamExposureDayCfg(const kerry_cam_exp_cfg_t *base, kerry_cam_exp_cfg_t *out);
 bool kerryCamExposureCfgEqual(const kerry_cam_exp_cfg_t *a, const kerry_cam_exp_cfg_t *b);
 
 int kerryCamExposureAeLevelMin(uint16_t pid);

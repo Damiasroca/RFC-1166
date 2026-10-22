@@ -6,6 +6,7 @@
 #include <esp_http_server.h>
 
 #include "kerry_cam_ov2640.h"
+#include "kerry_cam_exposure_cfg.h"
 
 extern const char *AP_SSID;
 extern const char *AP_PASS;
@@ -31,6 +32,7 @@ bool kerryStreamActive();
 bool kerryCamGrabActive();
 int kerryCamDiscardFrames(int count, uint32_t *tsMs = nullptr, int tsCap = 0);
 bool kerryCameraReady();
+bool kerryCamSamplingAllowed();
 const char *kerryCameraSensorName();
 #define KERRY_SELECTABLE_SIZES_MAX 9
 void kerryImageGet(JsonDocument &doc);
@@ -38,6 +40,7 @@ int kerryImageSelectableSizes(framesize_t *out, int cap);
 const char *kerryImageResolveFramesize(int framesize, framesize_t *requested, framesize_t *effective);
 const char *kerryImageSet(int framesize, int brightness, int contrast, int saturation, int flipHSet, int flipVSet);
 const char *kerryCamReapplyExposure();
+const char *kerryCamApplyExposureCfg(const kerry_cam_exp_cfg_t *cfg);
 
 typedef struct {
   uint16_t pid;

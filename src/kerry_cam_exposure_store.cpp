@@ -18,7 +18,24 @@ static bool g_unverified = false;
 static uint8_t g_captureFailStreak = 0;
 static volatile bool g_revertPending = false;
 static bool g_appliedSinceActivate = false;
+static kerry_cam_exp_cfg_t g_night = kerryCamExposureDefaultCfg();
+static bool g_hasNight = false;
 static SemaphoreHandle_t g_storeMu = nullptr;
+
+static bool clkrcNeedsChange(uint8_t stored, uint8_t *mapped, bool *legacy) {
+  *legacy = true;
+  if (stored == 0x81) *mapped = KERRY_EXP_CLKRC_SENTINEL;
+  else if (stored == 0x83) *mapped = 0x01;
+  else if (stored == 0x87) *mapped = 0x03;
+  else if (stored == 0x8F) *mapped = 0x07;
+  else if (!kerryCamExposureClkrcAllowed(stored)) {
+    *legacy = false;
+    *mapped = KERRY_EXP_CLKRC_SENTINEL;
+  } else {
+    return false;
+  }
+  return true;
+}
 
 static void writeNvs(const kerry_cam_exp_cfg_t *cfg) {
   Preferences prefs;
@@ -35,6 +52,16 @@ static void writeNvs(const kerry_cam_exp_cfg_t *cfg) {
   prefs.end();
 }
 
+static void writeNightNvs(const kerry_cam_exp_cfg_t *cfg) {
+  kerry_cam_exp_preset_blob_t blob = {};
+  blob.version = 1;
+  blob.cfg = *cfg;
+  Preferences prefs;
+  prefs.begin("kerry", false);
+  prefs.putBytes("exp_night", &blob, sizeof(blob));
+  prefs.end();
+}
+
 void kerryCamExpStoreGet(kerry_cam_exp_cfg_t *out) {
   xSemaphoreTake(g_storeMu, portMAX_DELAY);
   *out = g_cfg;
@@ -46,6 +73,38 @@ void kerryCamExpStoreSetStaged(const kerry_cam_exp_cfg_t *cfg) {
   g_staged = *cfg;
   g_hasStaged = true;
   xSemaphoreGive(g_storeMu);
+}
+
+bool kerryCamExpStoreGetNight(kerry_cam_exp_cfg_t *out) {
+  if (!out) return false;
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
+  bool has = g_hasNight;
+  if (has) *out = g_night;
+  xSemaphoreGive(g_storeMu);
+  return has;
+}
+
+void kerryCamExpStoreSetNight(const kerry_cam_exp_cfg_t *cfg) {
+  if (!cfg) return;
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
+  g_night = *cfg;
+  g_hasNight = true;
+  kerry_cam_exp_cfg_t copy = g_night;
+  xSemaphoreGive(g_storeMu);
+  writeNightNvs(&copy);
+}
+
+bool kerryCamExpStoreReplace(const kerry_cam_exp_cfg_t *cfg, kerry_cam_exp_cfg_t *prev) {
+  if (!cfg || !prev) return false;
+  xSemaphoreTake(g_storeMu, portMAX_DELAY);
+  if (g_hasStaged) {
+    xSemaphoreGive(g_storeMu);
+    return false;
+  }
+  *prev = g_cfg;
+  g_cfg = *cfg;
+  xSemaphoreGive(g_storeMu);
+  return true;
 }
 
 void kerryCamExposureLoad() {
@@ -63,37 +122,68 @@ void kerryCamExposureLoad() {
   loaded.gainCeiling = prefs.getUChar("exp_gceil", KERRY_EXP_GAIN_CEIL_SENTINEL);
   loaded.clkrc = prefs.getUChar("exp_clkrc", KERRY_EXP_CLKRC_SENTINEL);
   loaded.dummyLines = prefs.getUShort("exp_dummy", 0);
+
+  kerry_cam_exp_cfg_t night = kerryCamExposureDefaultCfg();
+  bool hasNight = false;
+  bool nightBad = false;
+  size_t nightLen = prefs.getBytesLength("exp_night");
+  if (nightLen == 0) {
+    hasNight = false;
+  } else if (nightLen != sizeof(kerry_cam_exp_preset_blob_t)) {
+    nightBad = true;
+  } else {
+    kerry_cam_exp_preset_blob_t blob = {};
+    if (prefs.getBytes("exp_night", &blob, sizeof(blob)) != sizeof(blob) || blob.version != 1) nightBad = true;
+    else {
+      night = blob.cfg;
+      hasNight = true;
+    }
+  }
   prefs.end();
 
-  uint8_t storedClk = loaded.clkrc;
-  uint8_t mappedClk = storedClk;
-  bool migrateClk = true;
-  if (storedClk == 0x81) mappedClk = KERRY_EXP_CLKRC_SENTINEL;
-  else if (storedClk == 0x83) mappedClk = 0x01;
-  else if (storedClk == 0x87) mappedClk = 0x03;
-  else if (storedClk == 0x8F) mappedClk = 0x07;
-  else migrateClk = false;
-
+  uint8_t mappedClk = loaded.clkrc;
+  bool legacyClk = false;
   kerry_cam_exp_cfg_t toSave = loaded;
-  bool needSave = false;
-  if (migrateClk) {
-    KERRY_LOGW("exposure", "stored clkrc 0x%02X migrated to 0x%02X", (unsigned)storedClk, (unsigned)mappedClk);
+  bool needSave = clkrcNeedsChange(loaded.clkrc, &mappedClk, &legacyClk);
+  if (needSave) {
+    if (legacyClk) {
+      KERRY_LOGW("exposure", "stored clkrc 0x%02X migrated to 0x%02X", (unsigned)loaded.clkrc, (unsigned)mappedClk);
+    } else {
+      KERRY_LOGW("exposure", "stored clkrc 0x%02X is not valid, using driver default", (unsigned)loaded.clkrc);
+    }
     toSave.clkrc = mappedClk;
-    needSave = true;
-  } else if (!kerryCamExposureClkrcAllowed(loaded.clkrc)) {
-    KERRY_LOGW("exposure", "stored clkrc 0x%02X is not valid, using driver default", (unsigned)loaded.clkrc);
-    toSave.clkrc = KERRY_EXP_CLKRC_SENTINEL;
-    needSave = true;
+  }
+
+  bool nightSave = false;
+  if (hasNight) {
+    uint8_t nightClk = night.clkrc;
+    bool nightLegacy = false;
+    if (clkrcNeedsChange(night.clkrc, &nightClk, &nightLegacy)) {
+      if (nightLegacy) {
+        KERRY_LOGW("exposure", "night preset clkrc 0x%02X migrated to 0x%02X", (unsigned)night.clkrc,
+                   (unsigned)nightClk);
+      } else {
+        KERRY_LOGW("exposure", "night preset clkrc 0x%02X is not valid, using driver default", (unsigned)night.clkrc);
+      }
+      night.clkrc = nightClk;
+      nightSave = true;
+    }
   }
 
   xSemaphoreTake(g_storeMu, portMAX_DELAY);
   g_cfg = needSave ? toSave : loaded;
+  g_night = night;
+  g_hasNight = hasNight;
   g_lastGood = kerryCamExposureDefaultCfg();
   g_hasLastGood = true;
   g_unverified = false;
   xSemaphoreGive(g_storeMu);
 
   if (needSave) writeNvs(&toSave);
+  if (nightSave) writeNightNvs(&night);
+  if (!hasNight) {
+    KERRY_LOGI("exposure", "no night preset (%s)", nightBad ? "invalid stored preset" : "not stored");
+  }
 
   KERRY_LOGI("exposure", "loaded aec=%d agc=%d clkrc=0x%02X dummy=%u", toSave.aecOn ? 1 : 0, toSave.agcOn ? 1 : 0,
              (unsigned)toSave.clkrc, (unsigned)toSave.dummyLines);
