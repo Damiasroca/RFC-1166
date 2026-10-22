@@ -10,6 +10,7 @@
 #include "kerry_web_util.h"
 #include "overlay/overlay_cfg.h"
 #include "web_assets.h"
+#include "web_exposure_api.h"
 
 #include <esp_ota_ops.h>
 #include <esp_heap_caps.h>
@@ -649,4 +650,5 @@ void webServerRegister(httpd_handle_t server) {
   registerUri(server, &apiSystemPostUri);
   registerUri(server, &apiEcowittGetUri);
   registerUri(server, &apiEcowittPostUri);
+  kerryWebExposureApiRegister(server);
 }
