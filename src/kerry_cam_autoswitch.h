@@ -21,6 +21,6 @@ typedef enum {
 void kerryCamAutoSwitchLoad();
 void kerryCamAutoSwitchService(uint32_t nowMs);
 const char *kerryCamAutoSwitchSaveNight();
-const char *kerryCamAutoSwitchApply(kerry_cam_mode_t mode);
+const char *kerryCamAutoSwitchApply(kerry_cam_mode_t mode, bool automatic, float triggerEv);
 const char *kerryCamAutoSwitchSetCfg(const kerry_cam_autoswitch_cfg_t *cfg);
 void kerryCamAutoSwitchFillJson(JsonDocument &doc);

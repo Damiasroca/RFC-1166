@@ -51,10 +51,10 @@ static esp_err_t apiExposureAutoPost(httpd_req_t *req) {
     err = kerryCamAutoSwitchSaveNight();
     okMessage = "Night preset saved";
   } else if (strcmp(action, "applyNight") == 0) {
-    err = kerryCamAutoSwitchApply(KERRY_CAM_MODE_NIGHT);
+    err = kerryCamAutoSwitchApply(KERRY_CAM_MODE_NIGHT, false, NAN);
     okMessage = "Night settings applied";
   } else if (strcmp(action, "applyDay") == 0) {
-    err = kerryCamAutoSwitchApply(KERRY_CAM_MODE_DAY);
+    err = kerryCamAutoSwitchApply(KERRY_CAM_MODE_DAY, false, NAN);
     okMessage = "Day settings applied";
   } else if (strcmp(action, "settings") == 0) {
     float lowEv = 0;

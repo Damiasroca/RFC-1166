@@ -117,7 +117,7 @@ void kerryCamAutoSwitchLoad() {
   g_autoHaveScene = false;
   g_autoHaveLastSwitch = false;
   g_autoNextSampleMs = 0;
-  g_autoLastSwitchReason = "";
+  g_autoLastSwitch = {};
   xSemaphoreGive(g_autoMu);
 }
 

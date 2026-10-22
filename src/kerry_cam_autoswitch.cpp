@@ -10,6 +10,7 @@
 #include "kerry_shared.h"
 
 #include <Arduino.h>
+#include <math.h>
 #include <stdio.h>
 
 static const char *TAG = "autosw";
@@ -23,7 +24,7 @@ kerry_luma_t g_autoLastLuma = {};
 bool g_autoHaveLast = false;
 uint32_t g_autoLastSampleMs = 0;
 uint32_t g_autoNextSampleMs = 0;
-const char *g_autoLastSwitchReason = "";
+kerry_auto_switch_event_t g_autoLastSwitch = {};
 uint32_t g_autoLastSwitchMs = 0;
 bool g_autoHaveLastSwitch = false;
 kerry_scene_t g_autoLastScene = {};
@@ -71,16 +72,35 @@ const char *kerryCamAutoSwitchSaveNight() {
   return nullptr;
 }
 
-const char *kerryCamAutoSwitchApply(kerry_cam_mode_t mode) {
+static void noteSwitch(kerry_cam_mode_t mode, bool ok, bool automatic, float triggerEv, const char *message) {
+  xSemaphoreTake(g_autoMu, portMAX_DELAY);
+  g_autoLastSwitch.message = message;
+  g_autoLastSwitch.mode = mode;
+  g_autoLastSwitch.ok = ok;
+  g_autoLastSwitch.automatic = automatic;
+  g_autoLastSwitch.ev = triggerEv;
+  g_autoLastSwitch.ms = millis();
+  g_autoLastSwitch.valid = true;
+  if (ok) {
+    g_autoLastSwitchMs = g_autoLastSwitch.ms;
+    g_autoHaveLastSwitch = true;
+  }
+  xSemaphoreGive(g_autoMu);
+}
+
+const char *kerryCamAutoSwitchApply(kerry_cam_mode_t mode, bool automatic, float triggerEv) {
   if (mode != KERRY_CAM_MODE_DAY && mode != KERRY_CAM_MODE_NIGHT) return "Unknown mode";
-  if (!beginApply()) return "Switch already in progress";
+  if (!beginApply()) {
+    noteSwitch(mode, false, automatic, triggerEv, "Switch already in progress");
+    return "Switch already in progress";
+  }
   kerry_cam_exp_cfg_t night;
   if (!kerryCamExpStoreGetNight(&night)) {
     xSemaphoreTake(g_autoMu, portMAX_DELAY);
-    g_autoLastSwitchReason = "No night preset";
     g_autoLowCount = 0;
     g_autoHighCount = 0;
     xSemaphoreGive(g_autoMu);
+    noteSwitch(mode, false, automatic, triggerEv, "No night preset");
     endApply();
     return "No night preset";
   }
@@ -91,9 +111,7 @@ const char *kerryCamAutoSwitchApply(kerry_cam_mode_t mode) {
   if (err) {
     KERRY_LOGW(TAG, "switch to %s failed: %s", kerryAutoModeName(mode), err);
     resetCounts();
-    xSemaphoreTake(g_autoMu, portMAX_DELAY);
-    g_autoLastSwitchReason = err;
-    xSemaphoreGive(g_autoMu);
+    noteSwitch(mode, false, automatic, triggerEv, err);
     endApply();
     return err;
   }
@@ -101,10 +119,8 @@ const char *kerryCamAutoSwitchApply(kerry_cam_mode_t mode) {
   g_autoMode = mode;
   g_autoLowCount = 0;
   g_autoHighCount = 0;
-  g_autoLastSwitchReason = mode == KERRY_CAM_MODE_NIGHT ? "night" : "day";
-  g_autoLastSwitchMs = millis();
-  g_autoHaveLastSwitch = true;
   xSemaphoreGive(g_autoMu);
+  noteSwitch(mode, true, automatic, triggerEv, nullptr);
   kerryAutoSaveMode(mode);
   KERRY_LOGI(TAG, "switched to %s", kerryAutoModeName(mode));
   endApply();
@@ -244,6 +260,7 @@ void kerryCamAutoSwitchService(uint32_t nowMs) {
              (unsigned)luma.linMean, sceneStatusName(scene.status), evText, kerryAutoModeName(mode), (unsigned)lowCount,
              (unsigned)highCount, dwell ? " dwell" : "");
   if (dwell) return;
-  if (toNight) kerryCamAutoSwitchApply(KERRY_CAM_MODE_NIGHT);
-  else if (toDay) kerryCamAutoSwitchApply(KERRY_CAM_MODE_DAY);
+  float triggerEv = scene.status == KERRY_SCENE_OK ? scene.ev : NAN;
+  if (toNight) kerryCamAutoSwitchApply(KERRY_CAM_MODE_NIGHT, true, triggerEv);
+  else if (toDay) kerryCamAutoSwitchApply(KERRY_CAM_MODE_DAY, true, triggerEv);
 }

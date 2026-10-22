@@ -16,7 +16,17 @@ extern kerry_luma_t g_autoLastLuma;
 extern bool g_autoHaveLast;
 extern uint32_t g_autoLastSampleMs;
 extern uint32_t g_autoNextSampleMs;
-extern const char *g_autoLastSwitchReason;
+typedef struct {
+  const char *message;
+  kerry_cam_mode_t mode;
+  bool ok;
+  bool automatic;
+  float ev;
+  uint32_t ms;
+  bool valid;
+} kerry_auto_switch_event_t;
+
+extern kerry_auto_switch_event_t g_autoLastSwitch;
 extern uint32_t g_autoLastSwitchMs;
 extern bool g_autoHaveLastSwitch;
 extern kerry_scene_t g_autoLastScene;
