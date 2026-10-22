@@ -142,19 +142,6 @@ const char *kerryCamAutoSwitchSetCfg(const kerry_cam_autoswitch_cfg_t *cfg) {
   return nullptr;
 }
 
-static const char *sceneStatusName(kerry_scene_status_t status) {
-  switch (status) {
-    case KERRY_SCENE_OK:
-      return "ok";
-    case KERRY_SCENE_CLIPPED_HIGH:
-      return "clipped_high";
-    case KERRY_SCENE_CLIPPED_LOW:
-      return "clipped_low";
-    default:
-      return "unavailable";
-  }
-}
-
 static void rememberSample(uint32_t nowMs, const kerry_luma_t *luma, const kerry_scene_t *scene) {
   xSemaphoreTake(g_autoMu, portMAX_DELAY);
   g_autoLastLuma = *luma;
@@ -257,7 +244,8 @@ void kerryCamAutoSwitchService(uint32_t nowMs) {
   if (scene.status == KERRY_SCENE_OK) snprintf(evText, sizeof evText, "%.1f", scene.ev);
   else snprintf(evText, sizeof evText, "-");
   KERRY_LOGI(TAG, "luma avg=%u lin=%u scene=%s ev=%s mode=%s low=%u high=%u%s", (unsigned)luma.avg,
-             (unsigned)luma.linMean, sceneStatusName(scene.status), evText, kerryAutoModeName(mode), (unsigned)lowCount,
+             (unsigned)luma.linMean, kerryAutoSceneStatusName(scene.status), evText, kerryAutoModeName(mode),
+             (unsigned)lowCount,
              (unsigned)highCount, dwell ? " dwell" : "");
   if (dwell) return;
   float triggerEv = scene.status == KERRY_SCENE_OK ? scene.ev : NAN;

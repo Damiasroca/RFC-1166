@@ -151,12 +151,12 @@
               Automatic switching
             </label>
             <div>
-              <label class="field-label" for="autoHigh">High luma</label>
-              <input class="input" type="number" id="autoHigh" min="0" max="250" step="1" value="150">
+              <label class="field-label" for="autoLow">Night below (EV)</label>
+              <input class="input" type="number" id="autoLow" min="-20" max="20" step="0.5" value="-6">
             </div>
             <div>
-              <label class="field-label" for="autoLow">Low luma</label>
-              <input class="input" type="number" id="autoLow" min="0" max="240" step="1" value="40">
+              <label class="field-label" for="autoHigh">Day above (EV)</label>
+              <input class="input" type="number" id="autoHigh" min="-20" max="20" step="0.5" value="-4">
             </div>
             <div>
               <label class="field-label" for="autoInterval">Interval (min)</label>
@@ -166,10 +166,15 @@
               <label class="field-label" for="autoSamples">Samples</label>
               <input class="input" type="number" id="autoSamples" min="1" max="10" step="1" value="3">
             </div>
+            <div>
+              <label class="field-label" for="autoDwell">Minimum time between switches (min)</label>
+              <input class="input" type="number" id="autoDwell" min="0" max="240" step="1" value="15">
+            </div>
             <div class="btn-row">
               <button type="button" class="btn btn-secondary" id="saveAutoBtn">Save switching settings</button>
             </div>
             <p class="hint" id="autoStatus">Mode: —</p>
+            <p class="hint">Watch the scene EV in the status line or logs for a few days, then set thresholds between the night and day values.</p>
             <p class="hint">Manual exposure changes are overridden at the next automatic switch.</p>
           </div>
         </div>

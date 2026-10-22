@@ -2,9 +2,13 @@
 
 #include "kerry_cam_exposure_store.h"
 #include "kerry_log.h"
+#include "kerry_shared.h"
 
 #include <Arduino.h>
 #include <Preferences.h>
+
+#include <math.h>
+#include <string.h>
 
 static const char *TAG = "autosw";
 
@@ -130,6 +134,9 @@ void kerryCamAutoSwitchFillJson(JsonDocument &doc) {
   kerry_luma_t last;
   bool haveLast;
   uint32_t lastSampleMs;
+  kerry_scene_t scene;
+  bool haveScene;
+  kerry_auto_switch_event_t lastSwitch;
   xSemaphoreTake(g_autoMu, portMAX_DELAY);
   cfg = g_autoCfg;
   mode = g_autoMode;
@@ -138,6 +145,9 @@ void kerryCamAutoSwitchFillJson(JsonDocument &doc) {
   last = g_autoLastLuma;
   haveLast = g_autoHaveLast;
   lastSampleMs = g_autoLastSampleMs;
+  scene = g_autoLastScene;
+  haveScene = g_autoHaveScene;
+  lastSwitch = g_autoLastSwitch;
   xSemaphoreGive(g_autoMu);
 
   doc["enabled"] = cfg.enabled;
@@ -158,6 +168,32 @@ void kerryCamAutoSwitchFillJson(JsonDocument &doc) {
   } else {
     doc["lastLuma"] = nullptr;
     doc["lastSampleAgeS"] = nullptr;
+  }
+
+  doc["available"] = strcmp(kerryCameraSensorName(), "OV2640") == 0;
+  if (haveScene) {
+    JsonObject sceneObj = doc["lastScene"].to<JsonObject>();
+    sceneObj["status"] = kerryAutoSceneStatusName(scene.status);
+    if (scene.status == KERRY_SCENE_OK) sceneObj["ev"] = scene.ev;
+    else sceneObj["ev"] = nullptr;
+    sceneObj["exposureMs"] = scene.exposureMs;
+    sceneObj["gain"] = scene.gain;
+  } else {
+    doc["lastScene"] = nullptr;
+  }
+  if (lastSwitch.valid &&
+      (lastSwitch.mode == KERRY_CAM_MODE_DAY || lastSwitch.mode == KERRY_CAM_MODE_NIGHT)) {
+    JsonObject sw = doc["lastSwitch"].to<JsonObject>();
+    sw["ok"] = lastSwitch.ok;
+    sw["to"] = lastSwitch.mode == KERRY_CAM_MODE_NIGHT ? "night" : "day";
+    sw["trigger"] = lastSwitch.automatic ? "auto" : "manual";
+    if (!isnan(lastSwitch.ev)) sw["ev"] = lastSwitch.ev;
+    else sw["ev"] = nullptr;
+    if (lastSwitch.message) sw["message"] = lastSwitch.message;
+    else sw["message"] = nullptr;
+    sw["ageS"] = (uint32_t)((millis() - lastSwitch.ms) / 1000UL);
+  } else {
+    doc["lastSwitch"] = nullptr;
   }
 
   kerry_cam_exp_cfg_t night;

@@ -32,6 +32,19 @@ extern bool g_autoHaveLastSwitch;
 extern kerry_scene_t g_autoLastScene;
 extern bool g_autoHaveScene;
 
+inline const char *kerryAutoSceneStatusName(kerry_scene_status_t status) {
+  switch (status) {
+    case KERRY_SCENE_OK:
+      return "ok";
+    case KERRY_SCENE_CLIPPED_HIGH:
+      return "clipped_high";
+    case KERRY_SCENE_CLIPPED_LOW:
+      return "clipped_low";
+    default:
+      return "unavailable";
+  }
+}
+
 void kerryAutoEnsureMu();
 const char *kerryAutoModeName(kerry_cam_mode_t mode);
 kerry_cam_autoswitch_cfg_t kerryAutoDefaultCfg();
