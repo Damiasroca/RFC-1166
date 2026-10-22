@@ -24,218 +24,249 @@
 
       <section class="content-box">
         <h2 class="input-box-til">Clock &amp; timezone</h2>
-        <div class="tiles">
-          <div class="tile wide">
-            <div class="tile-label">Local time</div>
-            <div class="tile-value" id="localTime">—</div>
+        <div class="box-body">
+          <div class="tiles">
+            <div class="tile wide">
+              <div class="tile-label">Local time</div>
+              <div class="tile-value" id="localTime">—</div>
+            </div>
+            <div class="tile wide">
+              <div class="tile-label">Timezone</div>
+              <div class="tile-value" id="tzName">—</div>
+            </div>
           </div>
-          <div class="tile wide">
-            <div class="tile-label">Timezone</div>
-            <div class="tile-value" id="tzName">—</div>
-          </div>
+          <p class="hint hint-spaced">NTP syncs when ship Wi-Fi is up. Timezone is picked from GeoPulse latitude/longitude (DST included).</p>
         </div>
-        <p class="hint hint-spaced">NTP syncs when ship Wi-Fi is up. Timezone is picked from GeoPulse latitude/longitude (DST included).</p>
       </section>
 
       <section class="content-box">
         <h2 class="input-box-til">Memory</h2>
-        <div class="tiles">
-          <div class="tile">
-            <div class="tile-label">Free heap</div>
-            <div class="tile-value" id="memHeapFree">—</div>
-            <div class="tile-sub" id="memHeapSub"></div>
+        <div class="box-body">
+          <div class="tiles">
+            <div class="tile">
+              <div class="tile-label">Free heap</div>
+              <div class="tile-value" id="memHeapFree">—</div>
+              <div class="tile-sub" id="memHeapSub"></div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Largest heap block</div>
+              <div class="tile-value" id="memHeapLargest">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Min free heap</div>
+              <div class="tile-value" id="memHeapMin">—</div>
+              <div class="tile-sub">Low-water since boot</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Uptime</div>
+              <div class="tile-value" id="memUptime">—</div>
+            </div>
           </div>
-          <div class="tile">
-            <div class="tile-label">Largest heap block</div>
-            <div class="tile-value" id="memHeapLargest">—</div>
+          <h3 class="tile-group">Internal RAM</h3>
+          <div class="tiles">
+            <div class="tile">
+              <div class="tile-label">Free internal</div>
+              <div class="tile-value" id="memInternalFree">—</div>
+              <div class="tile-sub" id="memInternalSub"></div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Largest internal block</div>
+              <div class="tile-value" id="memInternalLargest">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Min free internal</div>
+              <div class="tile-value" id="memInternalMin">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Free DMA-capable</div>
+              <div class="tile-value" id="memDmaFree">—</div>
+              <div class="tile-sub" id="memDmaSub"></div>
+            </div>
           </div>
-          <div class="tile">
-            <div class="tile-label">Min free heap</div>
-            <div class="tile-value" id="memHeapMin">—</div>
-            <div class="tile-sub">Low-water since boot</div>
+          <h3 class="tile-group">PSRAM</h3>
+          <div class="tiles">
+            <div class="tile">
+              <div class="tile-label">PSRAM</div>
+              <div class="tile-value" id="memPsramFree">—</div>
+              <div class="tile-sub" id="memPsramSub"></div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Largest PSRAM block</div>
+              <div class="tile-value" id="memPsramLargest">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Min free PSRAM</div>
+              <div class="tile-value" id="memPsramMin">—</div>
+            </div>
           </div>
-          <div class="tile">
-            <div class="tile-label">Uptime</div>
-            <div class="tile-value" id="memUptime">—</div>
+          <h3 class="tile-group">Flash</h3>
+          <div class="tiles">
+            <div class="tile">
+              <div class="tile-label">Flash chip</div>
+              <div class="tile-value" id="memFlashSize">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">Firmware size</div>
+              <div class="tile-value" id="memSketchSize">—</div>
+            </div>
+            <div class="tile">
+              <div class="tile-label">OTA free space</div>
+              <div class="tile-value" id="memSketchFree">—</div>
+            </div>
           </div>
+          <p class="hint hint-spaced">Refreshes every 3 seconds while this page is open.</p>
         </div>
-        <h3 class="tile-group">Internal RAM</h3>
-        <div class="tiles">
-          <div class="tile">
-            <div class="tile-label">Free internal</div>
-            <div class="tile-value" id="memInternalFree">—</div>
-            <div class="tile-sub" id="memInternalSub"></div>
-          </div>
-          <div class="tile">
-            <div class="tile-label">Largest internal block</div>
-            <div class="tile-value" id="memInternalLargest">—</div>
-          </div>
-          <div class="tile">
-            <div class="tile-label">Min free internal</div>
-            <div class="tile-value" id="memInternalMin">—</div>
-          </div>
-          <div class="tile">
-            <div class="tile-label">Free DMA-capable</div>
-            <div class="tile-value" id="memDmaFree">—</div>
-            <div class="tile-sub" id="memDmaSub"></div>
-          </div>
-        </div>
-        <h3 class="tile-group">PSRAM</h3>
-        <div class="tiles">
-          <div class="tile">
-            <div class="tile-label">PSRAM</div>
-            <div class="tile-value" id="memPsramFree">—</div>
-            <div class="tile-sub" id="memPsramSub"></div>
-          </div>
-          <div class="tile">
-            <div class="tile-label">Largest PSRAM block</div>
-            <div class="tile-value" id="memPsramLargest">—</div>
-          </div>
-          <div class="tile">
-            <div class="tile-label">Min free PSRAM</div>
-            <div class="tile-value" id="memPsramMin">—</div>
-          </div>
-        </div>
-        <h3 class="tile-group">Flash</h3>
-        <div class="tiles">
-          <div class="tile">
-            <div class="tile-label">Flash chip</div>
-            <div class="tile-value" id="memFlashSize">—</div>
-          </div>
-          <div class="tile">
-            <div class="tile-label">Firmware size</div>
-            <div class="tile-value" id="memSketchSize">—</div>
-          </div>
-          <div class="tile">
-            <div class="tile-label">OTA free space</div>
-            <div class="tile-value" id="memSketchFree">—</div>
-          </div>
-        </div>
-        <p class="hint hint-spaced">Refreshes every 3 seconds while this page is open.</p>
       </section>
 
       <section class="content-box">
         <h2 class="input-box-til">Watchdog</h2>
-        <div class="switch-row">
-          <label class="switch">
-            <input type="checkbox" id="wd_en">
-            <span class="switch-ui"></span>
-            Reboot on repeated camera or upload failures
-          </label>
-        </div>
-        <div class="fields" style="margin-top:12px">
-          <div>
-            <label class="field-label" for="wd_cam_n">Reboot after camera failures</label>
-            <input type="number" id="wd_cam_n" min="1" max="20" value="3">
+        <div class="box-body">
+          <div class="switch-row">
+            <label class="switch">
+              <input type="checkbox" id="wd_en">
+              <span class="switch-ui"></span>
+              Reboot on repeated camera or upload failures
+            </label>
           </div>
-          <div>
-            <label class="field-label" for="wd_up_n">Reboot after upload failures</label>
-            <input type="number" id="wd_up_n" min="1" max="20" value="3">
+          <div class="fields" style="margin-top:12px">
+            <div>
+              <label class="field-label" for="wd_cam_n">Reboot after camera failures</label>
+              <input type="number" id="wd_cam_n" min="1" max="20" value="3">
+            </div>
+            <div>
+              <label class="field-label" for="wd_up_n">Reboot after upload failures</label>
+              <input type="number" id="wd_up_n" min="1" max="20" value="3">
+            </div>
+            <div>
+              <label class="field-label" for="wd_cap_n">Reboot cap (count)</label>
+              <input type="number" id="wd_cap_n" min="1" max="20" value="3">
+            </div>
+            <div>
+              <label class="field-label" for="wd_cap_m">Cap window (minutes)</label>
+              <input type="number" id="wd_cap_m" min="1" max="1440" value="60">
+            </div>
           </div>
-          <div>
-            <label class="field-label" for="wd_cap_n">Reboot cap (count)</label>
-            <input type="number" id="wd_cap_n" min="1" max="20" value="3">
+          <p class="hint hint-spaced" id="wdStatus"></p>
+          <div class="btn-row">
+            <button type="button" class="common-btn" onclick="saveWatchdog()">Save watchdog</button>
           </div>
-          <div>
-            <label class="field-label" for="wd_cap_m">Cap window (minutes)</label>
-            <input type="number" id="wd_cap_m" min="1" max="1440" value="60">
-          </div>
-        </div>
-        <p class="hint hint-spaced" id="wdStatus"></p>
-        <div class="btn-row">
-          <button type="button" class="common-btn" onclick="saveWatchdog()">Save watchdog</button>
         </div>
       </section>
 
       <section class="content-box">
         <h2 class="input-box-til">Firmware</h2>
-        <div class="tiles">
-          <div class="tile wide">
-            <div class="tile-label">Current version</div>
-            <div class="tile-value" id="fwVersion">—</div>
+        <div class="box-body">
+          <div class="tiles">
+            <div class="tile wide">
+              <div class="tile-label">Current version</div>
+              <div class="tile-value" id="fwVersion">—</div>
+            </div>
           </div>
-        </div>
-        <div class="fields">
-          <div>
-            <label class="field-label" for="fw_file">Firmware file (.bin)</label>
-            <input type="file" id="fw_file" accept=".bin,application/octet-stream">
+          <div class="fields">
+            <div>
+              <label class="field-label" for="fw_file">Firmware file (.bin)</label>
+              <input type="file" id="fw_file" accept=".bin,application/octet-stream">
+            </div>
+            <div>
+              <label class="field-label" for="updateKey">Update key</label>
+              <input type="password" id="updateKey" placeholder="Same as AP password">
+            </div>
           </div>
-          <div>
-            <label class="field-label" for="updateKey">Update key</label>
-            <input type="password" id="updateKey" placeholder="Same as AP password">
+          <p class="hint hint-spaced">Close the live stream before upgrading. The camera reboots when the upload finishes.</p>
+          <div class="btn-row">
+            <button type="button" class="common-btn" id="flashBtn" onclick="flashFirmware()">Flash firmware</button>
           </div>
-        </div>
-        <p class="hint hint-spaced">Close the live stream before upgrading. The camera reboots when the upload finishes.</p>
-        <div class="btn-row">
-          <button type="button" class="common-btn" id="flashBtn" onclick="flashFirmware()">Flash firmware</button>
-        </div>
-        <div class="progress-wrap" id="progressWrap">
-          <div class="progress-bar"><span id="progressBar"></span></div>
-          <div class="progress-label" id="progressLabel">Uploading…</div>
+          <div class="progress-wrap" id="progressWrap">
+            <div class="progress-bar"><span id="progressBar"></span></div>
+            <div class="progress-label" id="progressLabel">Uploading…</div>
+          </div>
         </div>
       </section>
 
       <section class="content-box">
         <h2 class="input-box-til">Reboots &amp; post-mortem</h2>
-        <p id="diagRebootSummary" class="hint">—</p>
-        <ul id="diagReasonList" class="hint"></ul>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Boot time</th>
-                <th>Reason</th>
-                <th>Class</th>
-                <th>Cause</th>
-                <th>Prev uptime</th>
-                <th>Activity</th>
-                <th>Firmware</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="diagReportsBody"></tbody>
-          </table>
-        </div>
-        <div id="diagReportDetail" class="content-box" style="display:none;margin-top:12px"></div>
-        <div class="btn-row">
-          <button type="button" class="common-btn" onclick="diagDownloadReports()">Download all as text</button>
-          <button type="button" class="common-btn" onclick="diagClearHistory()">Clear history</button>
+        <div class="box-body">
+          <div class="tiles" id="diagPmSummaryTiles"></div>
+          <h3 class="tile-group">By reset reason</h3>
+          <div class="tiles" id="diagReasonTiles"></div>
+          <h3 class="tile-group">Recent reboots</h3>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Reason</th>
+                  <th>Class</th>
+                  <th>Cause</th>
+                  <th>Uptime before</th>
+                  <th class="col-opt">Activity</th>
+                  <th class="col-opt">Firmware</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="diagReportsBody"></tbody>
+            </table>
+          </div>
+          <div id="diagReportDetail" class="detail-panel" hidden></div>
+          <div class="btn-row">
+            <button type="button" class="common-btn btn-secondary" onclick="diagDownloadReports()">Download all as text</button>
+            <button type="button" class="common-btn btn-secondary" onclick="diagClearHistory()">Clear history</button>
+          </div>
         </div>
       </section>
 
       <section class="content-box">
         <h2 class="input-box-til">Upload statistics</h2>
-        <div id="diagFinestra"></div>
-        <h3 class="tile-group">Ecowitt</h3>
-        <div id="diagEcowitt"></div>
-        <p id="diagMisc" class="hint hint-spaced"></p>
-        <div class="table-wrap">
-          <table class="data-table">
-            <thead>
-              <tr><th>Time</th><th>Kind</th><th>Detail</th><th>Code</th></tr>
-            </thead>
-            <tbody id="diagFailBody"></tbody>
-          </table>
-        </div>
-        <div class="btn-row">
-          <button type="button" class="common-btn" onclick="diagResetStats()">Reset counters</button>
+        <div class="box-body">
+          <div id="diagUploadNotice" class="notice" hidden></div>
+          <h3 class="tile-group">Finestra uploads</h3>
+          <div class="tiles" id="diagFinestraTiles"></div>
+          <h3 class="tile-group">Failures by kind</h3>
+          <div class="tiles" id="diagFailKindTiles"></div>
+          <h3 class="tile-group">Ecowitt</h3>
+          <div class="tiles" id="diagEcowittTiles"></div>
+          <p id="diagEcowittHint" class="hint"></p>
+          <h3 class="tile-group">Camera &amp; watchdog</h3>
+          <div class="tiles" id="diagCamWdTiles"></div>
+          <h3 class="tile-group">Recent failures</h3>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Kind</th>
+                  <th>Detail</th>
+                  <th>Code</th>
+                </tr>
+              </thead>
+              <tbody id="diagFailBody"></tbody>
+            </table>
+          </div>
+          <div class="btn-row">
+            <button type="button" class="common-btn btn-secondary" onclick="diagResetStats()">Reset counters</button>
+          </div>
         </div>
       </section>
 
       <section class="content-box">
         <h2 class="input-box-til">Log history</h2>
-        <div class="btn-row">
-          <button type="button" class="common-btn" id="diagLogPauseBtn" onclick="diagToggleLogPause()">Pause</button>
-          <button type="button" class="common-btn" onclick="diagClearLogView()">Clear view</button>
-          <button type="button" class="common-btn" onclick="diagDownloadLog()">Download</button>
+        <div class="box-body">
+          <div class="btn-row">
+            <button type="button" class="common-btn btn-secondary" id="diagLogPauseBtn" onclick="diagToggleLogPause()">Pause</button>
+            <button type="button" class="common-btn btn-secondary" onclick="diagClearLogView()">Clear view</button>
+            <button type="button" class="common-btn btn-secondary" onclick="diagDownloadLog()">Download</button>
+            <span class="hint hint-end" id="diagLogStatus">Live · updated every 5 s</span>
+          </div>
+          <pre id="diagLogPanel" class="log-panel"></pre>
         </div>
-        <pre id="diagLogPanel" class="mono log-panel" style="max-height:360px;overflow:auto;margin-top:12px"></pre>
       </section>
 
       <section class="content-box">
         <h2 class="input-box-til">Power</h2>
-        <div class="btn-row">
-          <button type="button" class="common-btn" onclick="rebootDevice()">Reboot now</button>
+        <div class="box-body">
+          <div class="btn-row">
+            <button type="button" class="common-btn" onclick="rebootDevice()">Reboot now</button>
+          </div>
         </div>
       </section>
     </div>
@@ -246,13 +277,6 @@
     sidebar("system");
 
     var memPollTimer = null;
-
-    function fmtBytes(n) {
-      if (n === null || n === undefined || n < 0) return "—";
-      if (n < 1024) return n + " B";
-      if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
-      return (n / 1048576).toFixed(2) + " MB";
-    }
 
     function fmtUptime(sec) {
       if (sec === null || sec === undefined || sec < 0) return "—";
