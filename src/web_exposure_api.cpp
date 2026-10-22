@@ -5,6 +5,7 @@
 
 #include <ArduinoJson.h>
 
+#include <math.h>
 #include <string.h>
 
 static esp_err_t apiExposureAutoGet(httpd_req_t *req) {
@@ -19,6 +20,18 @@ static bool readSetting(JsonObjectConst in, const char *key, int *out) {
   if (!in[key].is<int>()) return false;
   *out = in[key].as<int>();
   return true;
+}
+
+static bool readEv(JsonObjectConst in, const char *key, float *out) {
+  if (in[key].is<float>()) {
+    *out = in[key].as<float>();
+    return true;
+  }
+  if (in[key].is<int>()) {
+    *out = (float)in[key].as<int>();
+    return true;
+  }
+  return false;
 }
 
 static esp_err_t apiExposureAutoPost(httpd_req_t *req) {
@@ -44,30 +57,38 @@ static esp_err_t apiExposureAutoPost(httpd_req_t *req) {
     err = kerryCamAutoSwitchApply(KERRY_CAM_MODE_DAY);
     okMessage = "Day settings applied";
   } else if (strcmp(action, "settings") == 0) {
-    int high = 0;
-    int low = 0;
+    float lowEv = 0;
+    float highEv = 0;
     int interval = 0;
     int samples = 0;
-    if (!in["enabled"].is<bool>() || !readSetting(in.as<JsonObjectConst>(), "highLuma", &high) ||
-        !readSetting(in.as<JsonObjectConst>(), "lowLuma", &low) ||
-        !readSetting(in.as<JsonObjectConst>(), "intervalMin", &interval) ||
-        !readSetting(in.as<JsonObjectConst>(), "samples", &samples)) {
+    int dwell = 0;
+    JsonObjectConst obj = in.as<JsonObjectConst>();
+    if (!in["enabled"].is<bool>() || !readEv(obj, "lowEv", &lowEv) || !readEv(obj, "highEv", &highEv) ||
+        !readSetting(obj, "intervalMin", &interval) || !readSetting(obj, "samples", &samples) ||
+        !readSetting(obj, "minDwellMin", &dwell)) {
       err = "Missing settings";
-    } else if (high < 0 || high > 255 || low < 0 || low > 255) {
-      err = "Luma thresholds out of range";
-    } else if (interval < 0 || interval > 255) {
-      err = "intervalMin out of range";
-    } else if (samples < 0 || samples > 255) {
-      err = "samples out of range";
     } else {
-      kerry_cam_autoswitch_cfg_t cfg;
-      cfg.enabled = in["enabled"].as<bool>();
-      cfg.highLuma = (uint8_t)high;
-      cfg.lowLuma = (uint8_t)low;
-      cfg.intervalMin = (uint8_t)interval;
-      cfg.samples = (uint8_t)samples;
-      err = kerryCamAutoSwitchSetCfg(&cfg);
-      okMessage = "Switching settings saved";
+      long lowT = lroundf(lowEv * 10.0f);
+      long highT = lroundf(highEv * 10.0f);
+      if (lowT < -200 || lowT > 200 || highT < -200 || highT > 200 || lowT + 10 > highT) {
+        err = "EV thresholds out of range";
+      } else if (interval < 0 || interval > 255) {
+        err = "intervalMin out of range";
+      } else if (samples < 0 || samples > 255) {
+        err = "samples out of range";
+      } else if (dwell < 0 || dwell > 255) {
+        err = "minDwellMin out of range";
+      } else {
+        kerry_cam_autoswitch_cfg_t cfg;
+        cfg.enabled = in["enabled"].as<bool>();
+        cfg.lowEvTenths = (int16_t)lowT;
+        cfg.highEvTenths = (int16_t)highT;
+        cfg.intervalMin = (uint8_t)interval;
+        cfg.samples = (uint8_t)samples;
+        cfg.minDwellMin = (uint8_t)dwell;
+        err = kerryCamAutoSwitchSetCfg(&cfg);
+        okMessage = "Switching settings saved";
+      }
     }
   } else {
     err = "Unknown action";

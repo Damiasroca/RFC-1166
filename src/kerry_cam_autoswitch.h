@@ -5,10 +5,11 @@
 
 typedef struct {
   bool enabled;
-  uint8_t highLuma;
-  uint8_t lowLuma;
+  int16_t lowEvTenths;
+  int16_t highEvTenths;
   uint8_t intervalMin;
   uint8_t samples;
+  uint8_t minDwellMin;
 } kerry_cam_autoswitch_cfg_t;
 
 typedef enum {
