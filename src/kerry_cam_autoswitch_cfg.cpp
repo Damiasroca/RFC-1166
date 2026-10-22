@@ -81,7 +81,8 @@ void kerryCamAutoSwitchLoad() {
   kerryAutoEnsureMu();
   kerry_cam_autoswitch_cfg_t cfg = kerryAutoDefaultCfg();
   kerry_cam_mode_t mode = KERRY_CAM_MODE_UNKNOWN;
-  bool reset = false;
+  bool formatReset = false;
+  bool invalidReset = false;
   Preferences prefs;
   prefs.begin("kautosw", true);
   size_t n = prefs.getBytesLength("cfg");
@@ -94,21 +95,22 @@ void kerryCamAutoSwitchLoad() {
       cfg.intervalMin = blob.intervalMin;
       cfg.samples = blob.samples;
       cfg.minDwellMin = blob.minDwellMin;
-      if (kerryAutoValidateCfg(&cfg)) reset = true;
+      if (kerryAutoValidateCfg(&cfg)) invalidReset = true;
     } else {
-      reset = true;
+      formatReset = true;
     }
   } else if (n != 0) {
-    reset = true;
+    formatReset = true;
   }
   uint8_t storedMode = prefs.getUChar("mode", KERRY_CAM_MODE_UNKNOWN);
   if (storedMode == KERRY_CAM_MODE_DAY || storedMode == KERRY_CAM_MODE_NIGHT) mode = (kerry_cam_mode_t)storedMode;
   prefs.end();
-  if (reset) {
+  if (formatReset || invalidReset) {
     cfg = kerryAutoDefaultCfg();
     cfg.enabled = false;
     kerryAutoSaveCfg(&cfg);
-    KERRY_LOGW(TAG, "switching settings were reset because the format changed");
+    if (formatReset) KERRY_LOGW(TAG, "switching settings were reset because the stored format changed");
+    else KERRY_LOGW(TAG, "switching settings were reset because stored values were invalid");
   }
 
   xSemaphoreTake(g_autoMu, portMAX_DELAY);
