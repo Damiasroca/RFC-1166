@@ -597,6 +597,8 @@ void webServerRegister(httpd_handle_t server) {
   httpd_uri_t uploadsHtml = {.uri = "/uploads.html", .method = HTTP_GET, .handler = staticHandler, .user_ctx = nullptr};
   httpd_uri_t appCss = {.uri = "/app.css", .method = HTTP_GET, .handler = staticHandler, .user_ctx = nullptr};
   httpd_uri_t appJs = {.uri = "/app.js", .method = HTTP_GET, .handler = staticHandler, .user_ctx = nullptr};
+  httpd_uri_t exposureAutoJs = {
+      .uri = "/exposure_auto.js", .method = HTTP_GET, .handler = staticHandler, .user_ctx = nullptr};
   httpd_uri_t apiVersionUri = {.uri = "/api/version", .method = HTTP_GET, .handler = apiVersion, .user_ctx = nullptr};
   httpd_uri_t apiAuthUri = {.uri = "/api/auth", .method = HTTP_GET, .handler = apiAuth, .user_ctx = nullptr};
   httpd_uri_t apiLoginUri = {.uri = "/api/login", .method = HTTP_POST, .handler = apiLogin, .user_ctx = nullptr};
@@ -629,6 +631,7 @@ void webServerRegister(httpd_handle_t server) {
   registerUri(server, &uploadsHtml);
   registerUri(server, &appCss);
   registerUri(server, &appJs);
+  registerUri(server, &exposureAutoJs);
   registerUri(server, &apiVersionUri);
   registerUri(server, &apiAuthUri);
   registerUri(server, &apiLoginUri);
