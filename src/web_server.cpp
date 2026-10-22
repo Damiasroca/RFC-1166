@@ -11,6 +11,8 @@
 #include "overlay/overlay_cfg.h"
 #include "web_assets.h"
 #include "web_exposure_api.h"
+#include "web_diag_api.h"
+#include "kerry_postmortem.h"
 
 #include <esp_ota_ops.h>
 #include <esp_heap_caps.h>
@@ -52,7 +54,7 @@ static esp_err_t staticHandler(httpd_req_t *req) {
   const WebAsset *asset = webFindAsset(req->uri);
   if (!asset) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not found");
   if (strcmp(req->uri, "/login.html") != 0 && strcmp(req->uri, "/app.css") != 0 &&
-      strcmp(req->uri, "/app.js") != 0) {
+      strcmp(req->uri, "/app.js") != 0 && strcmp(req->uri, "/diag.js") != 0) {
     if (!requireAuth(req, false)) return ESP_OK;
   }
   return sendAsset(req, asset);
@@ -386,7 +388,7 @@ static esp_err_t apiSystemPost(httpd_req_t *req) {
     out["message"] = "Rebooting";
     sendJson(req, out);
     delay(400);
-    ESP.restart();
+    kerryRebootWithCause("user reboot");
     return ESP_OK;
   }
   if (in["wd_en"].is<bool>()) {
@@ -540,7 +542,7 @@ static esp_err_t apiNetworkPost(httpd_req_t *req) {
   out["message"] = "Saved. The camera is restarting.";
   sendJson(req, out);
   delay(400);
-  ESP.restart();
+  kerryRebootWithCause("settings saved");
   return ESP_OK;
 }
 
@@ -599,6 +601,7 @@ void webServerRegister(httpd_handle_t server) {
   httpd_uri_t appJs = {.uri = "/app.js", .method = HTTP_GET, .handler = staticHandler, .user_ctx = nullptr};
   httpd_uri_t exposureAutoJs = {
       .uri = "/exposure_auto.js", .method = HTTP_GET, .handler = staticHandler, .user_ctx = nullptr};
+  httpd_uri_t diagJs = {.uri = "/diag.js", .method = HTTP_GET, .handler = staticHandler, .user_ctx = nullptr};
   httpd_uri_t apiVersionUri = {.uri = "/api/version", .method = HTTP_GET, .handler = apiVersion, .user_ctx = nullptr};
   httpd_uri_t apiAuthUri = {.uri = "/api/auth", .method = HTTP_GET, .handler = apiAuth, .user_ctx = nullptr};
   httpd_uri_t apiLoginUri = {.uri = "/api/login", .method = HTTP_POST, .handler = apiLogin, .user_ctx = nullptr};
@@ -632,6 +635,7 @@ void webServerRegister(httpd_handle_t server) {
   registerUri(server, &appCss);
   registerUri(server, &appJs);
   registerUri(server, &exposureAutoJs);
+  registerUri(server, &diagJs);
   registerUri(server, &apiVersionUri);
   registerUri(server, &apiAuthUri);
   registerUri(server, &apiLoginUri);
@@ -654,4 +658,5 @@ void webServerRegister(httpd_handle_t server) {
   registerUri(server, &apiEcowittGetUri);
   registerUri(server, &apiEcowittPostUri);
   kerryWebExposureApiRegister(server);
+  kerryWebDiagApiRegister(server);
 }

@@ -22,3 +22,4 @@ void kerry_log(KerryLogLevel level, const char *tag, const char *fmt, ...);
 bool kerry_log_every_ms(const char *key, uint32_t interval_ms);
 bool kerry_log_if_changed(const char *key, const char *value);
 bool kerry_log_http_verbose(const char *uri);
+void kerryLogSink(const char *line, int len);

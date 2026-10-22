@@ -1,5 +1,7 @@
 #include "kerry_cam_exposure.h"
 
+#include "kerry_postmortem.h"
+
 #include "kerry_cam_exposure_cfg.h"
 #include "kerry_cam_exposure_store.h"
 #include "kerry_cam_ov2640.h"
@@ -248,6 +250,7 @@ uint32_t kerryCamExposureFrameMs() {
 }
 
 static void kerryCamExposureSettle(const kerry_cam_exp_cfg_t *cfg) {
+  kerryPmSetActivity(KERRY_ACT_SETTLE, true);
   kerryWdtLenient();
   bool manual = !cfg->aecOn && !cfg->agcOn;
   uint32_t timeCap = kerryCamExposureBudgetMs() * 3UL;
@@ -304,6 +307,7 @@ static void kerryCamExposureSettle(const kerry_cam_exp_cfg_t *cfg) {
     KERRY_LOGW("exposure",
                "frame period not measured: reason=%s ended=%s attempts=%d timeouts=%d stale=%d fresh=%d elapsed=%ums",
                reason, ended ? ended : "?", attempts, timeouts, stale, fresh, (unsigned)elapsed);
+    kerryPmSetActivity(KERRY_ACT_SETTLE, false);
     return;
   }
   sensor_t *s = esp_camera_sensor_get();
@@ -311,6 +315,7 @@ static void kerryCamExposureSettle(const kerry_cam_exp_cfg_t *cfg) {
   framesize_t fs = s ? s->status.framesize : FRAMESIZE_SVGA;
   kerryCamExposureNoteMeasured(period, cfg, pid, fs);
   KERRY_LOGD("exposure", "measured frame period %ums fresh=%d stale=%d", (unsigned)period, fresh, stale);
+  kerryPmSetActivity(KERRY_ACT_SETTLE, false);
 }
 
 void kerryCamExposureServiceRevert() {

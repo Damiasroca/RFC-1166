@@ -3,6 +3,8 @@
 #include "ws_log.h"
 
 #include "kerry_log.h"
+#include "kerry_log_history.h"
+#include "kerry_postmortem.h"
 
 #include <esp_http_server.h>
 #include <esp_log.h>
@@ -113,6 +115,8 @@ static int ws_vprintf(const char *fmt, va_list ap) {
         line[n] = 0;
       }
       if ((uint8_t)line_level(line) <= s_level && !skip_send(line)) {
+        kerryPmLogLine(line, n);
+        kerryLogHistoryWrite(line, n);
         ring_put(line, n);
         if (s_task) xTaskNotifyGive(s_task);
       }

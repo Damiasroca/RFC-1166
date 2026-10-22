@@ -16,6 +16,7 @@ ASSETS = [
     ("app.css", "app_css"),
     ("app.js", "app_js"),
     ("exposure_auto.js", "exposure_auto_js"),
+    ("diag.js", "diag_js"),
 ]
 
 

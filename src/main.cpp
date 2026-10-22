@@ -17,6 +17,7 @@
 #include <esp_wifi.h>
 
 #include <cstring>
+#include <time.h>
 
 #include "ecowitt.h"
 #include "geopulse.h"
@@ -27,6 +28,9 @@
 #include "kerry_cam_telemetry.h"
 #include "kerry_health.h"
 #include "kerry_log.h"
+#include "kerry_log_history.h"
+#include "kerry_postmortem.h"
+#include "kerry_stats.h"
 #include "kerry_shared.h"
 #include "kerry_time.h"
 #include "kerry_version.h"
@@ -683,6 +687,7 @@ static void initOv5640AutoFocus() {
 }
 
 static bool startCameraWithPwdn(int pwdnEnd, bool forceStandard) {
+  kerryPmSetActivity(KERRY_ACT_CAM_INIT, true);
   ov5640SketchActive = false;
 #if defined(ARDUINO_XIAO_ESP32S3)
   const bool sketch = !forceStandard && psramFound();
@@ -705,8 +710,10 @@ static bool startCameraWithPwdn(int pwdnEnd, bool forceStandard) {
   if (!bootCamera(&config, pwdnEnd)) {
     if (sketch) {
       logw("OV5640 snapshot init failed, using standard init");
+      kerryPmSetActivity(KERRY_ACT_CAM_INIT, false);
       return startCameraWithPwdn(pwdnEnd, true);
     }
+    kerryPmSetActivity(KERRY_ACT_CAM_INIT, false);
     return false;
   }
 
@@ -717,6 +724,7 @@ static bool startCameraWithPwdn(int pwdnEnd, bool forceStandard) {
     camFrameSize = FRAMESIZE_HD;
     cameraInitCleanup();
     cameraReady = false;
+    kerryPmSetActivity(KERRY_ACT_CAM_INIT, false);
     return startCamera();
   }
 
@@ -724,6 +732,7 @@ static bool startCameraWithPwdn(int pwdnEnd, bool forceStandard) {
     logf("camera is %s, using standard init", cameraSensorName());
     cameraInitCleanup();
     cameraReady = false;
+    kerryPmSetActivity(KERRY_ACT_CAM_INIT, false);
     return startCameraWithPwdn(pwdnEnd, true);
   }
 
@@ -732,6 +741,7 @@ static bool startCameraWithPwdn(int pwdnEnd, bool forceStandard) {
     cameraInitCleanup();
     cameraReady = false;
     delay(100);
+    kerryPmSetActivity(KERRY_ACT_CAM_INIT, false);
     return startCameraWithPwdn(pwdnEnd, false);
   }
 
@@ -749,6 +759,7 @@ static bool startCameraWithPwdn(int pwdnEnd, bool forceStandard) {
   }
   noteActiveGrab(&config);
   applyCameraControls();
+  kerryPmSetActivity(KERRY_ACT_CAM_INIT, false);
   return true;
 }
 
@@ -1222,6 +1233,7 @@ const char *kerryImageSet(int framesize, int brightness, int contrast, int satur
       esp_camera_deinit();
       cameraReady = false;
     }
+    kerryStatsNote(KERRY_SE_CAM_REINIT, "image settings", 0);
     ok = startCamera();
   } else {
     applyCameraControls();
@@ -1881,19 +1893,25 @@ bool kerryCaptureUploadJpeg(const char *why, uint8_t **out, size_t *outLen, char
 }
 
 static bool uploadCaptureToFinestra() {
+  kerryPmSetActivity(KERRY_ACT_UPLOAD, true);
   uint32_t t0 = millis();
   if (WiFi.status() != WL_CONNECTED || !portalOk) {
+    kerryStatsNote(KERRY_SE_UP_SKIP_NET, "wifi or portal", 0);
     ulogw("skipped: wifi=%d portal=%d", (int)WiFi.status(), portalOk ? 1 : 0);
+    kerryPmSetActivity(KERRY_ACT_UPLOAD, false);
     return false;
   }
 
+  kerryStatsNote(KERRY_SE_UP_ATTEMPT, nullptr, 0);
   ulogf("starting");
   char capErr[96];
   uint8_t *jpeg = nullptr;
   size_t jpegLen = 0;
   if (!kerryCaptureUploadJpeg("upload", &jpeg, &jpegLen, capErr, sizeof capErr)) {
     snprintf(uploadStatus, sizeof uploadStatus, "%s", capErr);
+    kerryStatsNote(KERRY_SE_UP_CAPTURE_FAIL, capErr, 0);
     ulogw("%s (%lums)", capErr, millis() - t0);
+    kerryPmSetActivity(KERRY_ACT_UPLOAD, false);
     return false;
   }
   uint32_t tCap = millis();
@@ -1910,7 +1928,9 @@ static bool uploadCaptureToFinestra() {
   if (!body) {
     free(jpeg);
     strncpy(uploadStatus, "Upload failed, out of memory", sizeof(uploadStatus));
+    kerryStatsNote(KERRY_SE_UP_OOM, uploadStatus, 0);
     ulogw("failed: multipart body OOM (%u bytes, %lums)", (unsigned)bodyLen, millis() - t0);
+    kerryPmSetActivity(KERRY_ACT_UPLOAD, false);
     return false;
   }
 
@@ -1954,18 +1974,22 @@ static bool uploadCaptureToFinestra() {
 
   if (ok) {
     snprintf(uploadStatus, sizeof(uploadStatus), "Last upload OK (HTTP %d)", code);
+    kerryStatsNote(KERRY_SE_UP_OK, nullptr, code);
     kerryHealthNoteUploadOk();
     ulogf("OK HTTP %d %u bytes total=%lums cap=%lu http=%lu", code, (unsigned)jpegLen, tDone - t0, tCap - t0,
           tHttp - tHttp0);
   } else {
     if (code >= 0) {
       snprintf(uploadStatus, sizeof(uploadStatus), "Last upload failed (HTTP %d)", code);
+      kerryStatsNote(KERRY_SE_UP_HTTP, uploadStatus, code);
     } else {
       strncpy(uploadStatus, "Last upload failed, no connection", sizeof(uploadStatus));
+      kerryStatsNote(KERRY_SE_UP_NO_CONN, uploadStatus, code);
     }
     kerryHealthNoteUploadFail(uploadStatus);
     ulogw("failed HTTP %d total=%lums cap=%lu http=%lu", code, tDone - t0, tCap - t0, tHttp - tHttp0);
   }
+  kerryPmSetActivity(KERRY_ACT_UPLOAD, false);
   return ok;
 }
 
@@ -2066,13 +2090,16 @@ static bool jpegHasEoi(const uint8_t *buf, size_t len) {
 
 static esp_err_t captureHandler(httpd_req_t *req) {
   logHttp(req);
+  kerryPmSetActivity(KERRY_ACT_CAPTURE, true);
   if (!lockCam(2000)) {
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Camera is busy");
+    kerryPmSetActivity(KERRY_ACT_CAPTURE, false);
     return ESP_FAIL;
   }
   if (!cameraReady) {
     unlockCam();
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Camera is not ready");
+    kerryPmSetActivity(KERRY_ACT_CAPTURE, false);
     return ESP_FAIL;
   }
   if (ov5640SketchActive) {
@@ -2095,6 +2122,7 @@ static esp_err_t captureHandler(httpd_req_t *req) {
     unlockCam();
     serviceExposureRevertIfNeeded();
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Capture failed");
+    kerryPmSetActivity(KERRY_ACT_CAPTURE, false);
     return ESP_FAIL;
   }
   logDeliveredFrameAge("capture", fb);
@@ -2110,6 +2138,7 @@ static esp_err_t captureHandler(httpd_req_t *req) {
     esp_camera_fb_return(fb);
     unlockCam();
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+    kerryPmSetActivity(KERRY_ACT_CAPTURE, false);
     return ESP_FAIL;
   }
   memcpy(jpegCopy, fb->buf, jpegLen);
@@ -2134,6 +2163,7 @@ static esp_err_t captureHandler(httpd_req_t *req) {
   } else {
     logf("capture %u bytes %ux%u", (unsigned)sendLen, capW, capH);
   }
+  kerryPmSetActivity(KERRY_ACT_CAPTURE, false);
   return res;
 }
 
@@ -2205,6 +2235,7 @@ static void pushLiveBurst(int seconds, int intervalMs) {
   if (seconds < 1 || streamActive || otaInProgress || uploadInProgress) return;
   if (seconds > 30) seconds = 30;
   livePushActive = true;
+  kerryPmSetActivity(KERRY_ACT_LIVEPUSH, true);
   kerryWdtLenient();
   uint32_t deadline = millis() + (uint32_t)seconds * 1000UL;
   uint32_t hardStop = millis() + LIVE_MAX_MS;
@@ -2245,6 +2276,7 @@ static void pushLiveBurst(int seconds, int intervalMs) {
   }
   ulogf("live push done, %d frames", sent);
   livePushActive = false;
+  kerryPmSetActivity(KERRY_ACT_LIVEPUSH, false);
   kerryWdtRestore();
 }
 
@@ -2275,6 +2307,7 @@ static esp_err_t streamHandler(httpd_req_t *req) {
   httpd_resp_set_type(req, STREAM_TYPE);
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
   streamActive = true;
+  kerryPmSetActivity(KERRY_ACT_STREAM, true);
   char part[80];
   int misses = 0;
   while (true) {
@@ -2300,6 +2333,7 @@ static esp_err_t streamHandler(httpd_req_t *req) {
     if (res != ESP_OK) break;
   }
   streamActive = false;
+  kerryPmSetActivity(KERRY_ACT_STREAM, false);
   return ESP_OK;
 }
 
@@ -2402,6 +2436,7 @@ static esp_err_t updateHandler(httpd_req_t *req) {
 
   logf("OTA upload starting, %d bytes", req->content_len);
   otaInProgress = true;
+  kerryPmSetActivity(KERRY_ACT_OTA, true);
   nextPortalMs = millis() + 600000;
 
   if (lockCam(5000)) {
@@ -2414,6 +2449,7 @@ static esp_err_t updateHandler(httpd_req_t *req) {
 
   if (!Update.begin(req->content_len)) {
     otaInProgress = false;
+    kerryPmSetActivity(KERRY_ACT_OTA, false);
     logf("OTA begin failed: %s", Update.errorString());
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, Update.errorString());
     return ESP_FAIL;
@@ -2429,6 +2465,7 @@ static esp_err_t updateHandler(httpd_req_t *req) {
     if (received <= 0) {
       Update.abort();
       otaInProgress = false;
+      kerryPmSetActivity(KERRY_ACT_OTA, false);
       logf("OTA upload interrupted while receiving");
       httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Upload interrupted");
       return ESP_FAIL;
@@ -2437,6 +2474,7 @@ static esp_err_t updateHandler(httpd_req_t *req) {
     if (written != (size_t)received) {
       Update.abort();
       otaInProgress = false;
+      kerryPmSetActivity(KERRY_ACT_OTA, false);
       logf("OTA write failed: %s", Update.errorString());
       httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, Update.errorString());
       return ESP_FAIL;
@@ -2447,6 +2485,7 @@ static esp_err_t updateHandler(httpd_req_t *req) {
 
   if (!Update.end(true)) {
     otaInProgress = false;
+    kerryPmSetActivity(KERRY_ACT_OTA, false);
     logf("OTA finalize failed: %s", Update.errorString());
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, Update.errorString());
     return ESP_FAIL;
@@ -2456,7 +2495,7 @@ static esp_err_t updateHandler(httpd_req_t *req) {
   httpd_resp_set_type(req, "text/plain");
   httpd_resp_sendstr(req, "OK, rebooting into new firmware");
   delay(500);
-  ESP.restart();
+  kerryRebootWithCause("OTA update");
   return ESP_OK;
 }
 
@@ -2491,7 +2530,7 @@ static void logHeartbeat() {
 
 static void startHttp() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.max_uri_handlers = 48;
+  config.max_uri_handlers = 52;
   config.max_open_sockets = 7;
   config.lru_purge_enable = true;
   config.backlog_conn = 5;
@@ -2830,6 +2869,8 @@ static void *tlsCalloc(size_t n, size_t size) {
 }
 
 void setup() {
+  kerryPmBoot();
+  kerryLogHistoryInit();
   setApSsidFromMac();
   esp_brownout_disable();
   mbedtls_platform_set_calloc_free(tlsCalloc, heap_caps_free);
@@ -2860,6 +2901,7 @@ void setup() {
   loadConfig();
   kerryHealthInit();
   kerryTimeInit();
+  kerryPmReportsInit();
   kerryAwbLoad();
   kerryCamExposureLoad();
   kerryCamAutoSwitchLoad();
@@ -2906,7 +2948,23 @@ void loop() {
   if (millis() >= nextBeat) {
     nextBeat = millis() + 5000;
     ensureAp();
+    kerryPmHeartbeat();
     logHeartbeat();
+  }
+  static bool s_clockReportDone = false;
+  if (!s_clockReportDone) {
+    time_t clk = 0;
+    time(&clk);
+    if (clk >= 1600000000) {
+      s_clockReportDone = true;
+      kerryPmReportsOnClockSync();
+    }
+  }
+  static uint32_t s_nextStatsFlush = 0;
+  if (s_nextStatsFlush == 0) s_nextStatsFlush = millis() + 600000UL;
+  if ((int32_t)(millis() - s_nextStatsFlush) >= 0) {
+    s_nextStatsFlush = millis() + 600000UL;
+    kerryStatsFlush();
   }
   serviceWifiReconnect();
   kerryTimeLoop();
@@ -2917,6 +2975,7 @@ void loop() {
       nextCamRetryMs = millis() + 15000;
       if (lockCam(500)) {
         logw("camera down, retrying init");
+        kerryStatsNote(KERRY_SE_CAM_REINIT, "loop retry", 0);
         disableLoopWDT();
         startCamera();
         enableLoopWDT();

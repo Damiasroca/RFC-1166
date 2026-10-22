@@ -1,5 +1,7 @@
 #include "kerry_log.h"
 
+#include "kerry_log_history.h"
+#include "kerry_postmortem.h"
 #include "ws_log.h"
 
 #include <Arduino.h>
@@ -39,6 +41,11 @@ static const char *level_name(KerryLogLevel level) {
 
 void kerry_log_set_level(KerryLogLevel level) { s_level = level; }
 
+void kerryLogSink(const char *line, int len) {
+  kerryPmLogLine(line, len);
+  kerryLogHistoryWrite(line, len);
+}
+
 void kerry_log_v(KerryLogLevel level, const char *tag, const char *fmt, va_list ap) {
   if (level > s_level || !fmt) return;
   char msg[220];
@@ -46,7 +53,9 @@ void kerry_log_v(KerryLogLevel level, const char *tag, const char *fmt, va_list 
   char out[280];
   snprintf(out, sizeof out, "[%8lu] %s %-5s: %s\n", millis(), level_name(level), tag ? tag : "?", msg);
   Serial.print(out);
-  kerry_ws_log_write(out, (int)strlen(out));
+  int nout = (int)strlen(out);
+  kerryLogSink(out, nout);
+  kerry_ws_log_write(out, nout);
 }
 
 void kerry_log(KerryLogLevel level, const char *tag, const char *fmt, ...) {
@@ -94,6 +103,7 @@ bool kerry_log_http_verbose(const char *uri) {
   if (strcmp(uri, "/api/auth") == 0) return false;
   if (strcmp(uri, "/api/network") == 0) return false;
   if (strcmp(uri, "/api/status") == 0) return false;
+  if (strncmp(uri, "/api/log", 8) == 0) return false;
   if (strncmp(uri, "/favicon", 8) == 0) return false;
   return true;
 }

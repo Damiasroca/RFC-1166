@@ -176,6 +176,63 @@
       </section>
 
       <section class="content-box">
+        <h2 class="input-box-til">Reboots &amp; post-mortem</h2>
+        <p id="diagRebootSummary" class="hint">—</p>
+        <ul id="diagReasonList" class="hint"></ul>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Boot time</th>
+                <th>Reason</th>
+                <th>Class</th>
+                <th>Cause</th>
+                <th>Prev uptime</th>
+                <th>Activity</th>
+                <th>Firmware</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="diagReportsBody"></tbody>
+          </table>
+        </div>
+        <div id="diagReportDetail" class="content-box" style="display:none;margin-top:12px"></div>
+        <div class="btn-row">
+          <button type="button" class="common-btn" onclick="diagDownloadReports()">Download all as text</button>
+          <button type="button" class="common-btn" onclick="diagClearHistory()">Clear history</button>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Upload statistics</h2>
+        <div id="diagFinestra"></div>
+        <h3 class="tile-group">Ecowitt</h3>
+        <div id="diagEcowitt"></div>
+        <p id="diagMisc" class="hint hint-spaced"></p>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr><th>Time</th><th>Kind</th><th>Detail</th><th>Code</th></tr>
+            </thead>
+            <tbody id="diagFailBody"></tbody>
+          </table>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="common-btn" onclick="diagResetStats()">Reset counters</button>
+        </div>
+      </section>
+
+      <section class="content-box">
+        <h2 class="input-box-til">Log history</h2>
+        <div class="btn-row">
+          <button type="button" class="common-btn" id="diagLogPauseBtn" onclick="diagToggleLogPause()">Pause</button>
+          <button type="button" class="common-btn" onclick="diagClearLogView()">Clear view</button>
+          <button type="button" class="common-btn" onclick="diagDownloadLog()">Download</button>
+        </div>
+        <pre id="diagLogPanel" class="mono log-panel" style="max-height:360px;overflow:auto;margin-top:12px"></pre>
+      </section>
+
+      <section class="content-box">
         <h2 class="input-box-til">Power</h2>
         <div class="btn-row">
           <button type="button" class="common-btn" onclick="rebootDevice()">Reboot now</button>
@@ -184,6 +241,7 @@
     </div>
   </div>
   <script src="/app.js"></script>
+  <script src="/diag.js"></script>
   <script>
     sidebar("system");
 
@@ -361,6 +419,7 @@
     requireAuth(function () {
       loadSystem();
       startMemoryPoll();
+      if (typeof diagInit === "function") diagInit();
     });
   </script>
 </body>

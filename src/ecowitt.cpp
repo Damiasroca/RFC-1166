@@ -2,6 +2,8 @@
 
 #include "secrets.h"
 #include "kerry_log.h"
+#include "kerry_postmortem.h"
+#include "kerry_stats.h"
 #include "kerry_shared.h"
 #include "kerry_time.h"
 
@@ -1111,6 +1113,8 @@ static bool postJpeg(const uint8_t *jpg, size_t jpgN, int intervalMin, char *err
 enum ShotResult { SHOT_NO_CAMERA, SHOT_HTTP_OK, SHOT_HTTP_FAIL };
 
 static ShotResult takeShot(int intervalMin) {
+  kerryPmSetActivity(KERRY_ACT_ECOWITT, true);
+  kerryStatsNote(KERRY_SE_ECO_ATTEMPT, nullptr, 0);
   if (lockWait(portMAX_DELAY)) {
     s_working = true;
     unlock();
@@ -1127,6 +1131,8 @@ static ShotResult takeShot(int intervalMin) {
       unlock();
     }
     KERRY_LOGW("ecowitt", "%s", err);
+    kerryStatsNote(KERRY_SE_ECO_FAIL, err, 0);
+    kerryPmSetActivity(KERRY_ACT_ECOWITT, false);
     return SHOT_NO_CAMERA;
   }
   bool ok = postJpeg(jpg, jpgN, intervalMin, err, sizeof err);
@@ -1137,6 +1143,9 @@ static ShotResult takeShot(int intervalMin) {
     s_working = false;
     unlock();
   }
+  if (ok) kerryStatsNote(KERRY_SE_ECO_OK, nullptr, 0);
+  else kerryStatsNote(KERRY_SE_ECO_FAIL, err, 0);
+  kerryPmSetActivity(KERRY_ACT_ECOWITT, false);
   return ok ? SHOT_HTTP_OK : SHOT_HTTP_FAIL;
 }
 

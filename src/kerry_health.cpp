@@ -1,6 +1,8 @@
 #include "kerry_health.h"
 
 #include "kerry_log.h"
+#include "kerry_postmortem.h"
+#include "kerry_stats.h"
 
 #include <Preferences.h>
 #include <cstring>
@@ -78,17 +80,20 @@ static void capRecord() {
   s_rtc.magic = RTC_MAGIC;
 }
 
+static char s_rebootCause[80];
+
 static void rebootSoon() {
   if (s_rebooting) return;
   s_rebooting = true;
   delay(1500);
-  ESP.restart();
+  kerryRebootWithCause(s_rebootCause[0] ? s_rebootCause : "watchdog");
 }
 
 static bool maybeReboot(const char *detail) {
   if (!g_wd_en || s_rebooting) return false;
   if (!capAllows()) {
     s_held = true;
+    kerryStatsNote(KERRY_SE_WD_HELD, detail, 0);
     KERRY_LOGW("health", "watchdog reboot held (%s, cap %u/%u in %u min)", detail ? detail : "watchdog",
                (unsigned)capFresh(nowSec()), (unsigned)(g_wd_cap_n ? g_wd_cap_n : 3), (unsigned)g_wd_cap_m);
     return false;
@@ -98,6 +103,8 @@ static bool maybeReboot(const char *detail) {
   strncpy(s_rtc.cause, detail ? detail : "watchdog", sizeof s_rtc.cause - 1);
   s_rtc.cause[sizeof s_rtc.cause - 1] = '\0';
   s_rtc.magic = RTC_MAGIC;
+  snprintf(s_rebootCause, sizeof s_rebootCause, "watchdog: %s", detail ? detail : "watchdog");
+  kerryStatsNote(KERRY_SE_WD_REBOOT, detail, 0);
   KERRY_LOGW("health", "watchdog reboot: %s", s_rtc.cause);
   rebootSoon();
   return true;
@@ -185,6 +192,7 @@ const char *kerryHealthSetWatchdog(bool enabled, int camN, int upN, int capN, in
 void kerryHealthNoteCameraOk() { s_camFail = 0; }
 
 bool kerryHealthNoteCameraFail(const char *detail) {
+  kerryStatsNote(KERRY_SE_CAM_FAIL, detail, 0);
   if (s_camFail < 255) s_camFail++;
   uint8_t n = g_wd_cam_n ? g_wd_cam_n : 3;
   KERRY_LOGW("health", "camera fail %u/%u (%s)", (unsigned)s_camFail, (unsigned)n, detail ? detail : "?");
