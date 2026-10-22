@@ -7,6 +7,7 @@
 #include "kerry_shared.h"
 
 #include <Arduino.h>
+#include <cstring>
 #include <esp_camera.h>
 
 static const char *g_lastApplyErr = nullptr;
@@ -257,26 +258,59 @@ static void kerryCamExposureSettle(const kerry_cam_exp_cfg_t *cfg) {
   uint32_t freshTs[10];
   int fresh = 0;
   int attempts = 0;
+  int timeouts = 0;
+  int stale = 0;
+  const char *ended = nullptr;
   kerryCamExposureNoteMeasured(0, cfg, 0, FRAMESIZE_SVGA);
   while (fresh < frameCap && attempts < frameCap && (uint32_t)(millis() - started) < timeCap) {
     uint32_t ts = 0;
     int n = kerryCamDiscardFrames(1, &ts, 1);
     attempts++;
-    if (n <= 0) break;
-    if ((int32_t)(started - ts) > 50) continue;
+    if (n <= 0) {
+      timeouts++;
+      ended = "timeout";
+      break;
+    }
+    if ((int32_t)(started - ts) > 50) {
+      stale++;
+      continue;
+    }
     freshTs[fresh++] = ts;
-    if (fresh >= minFrames && (uint32_t)(millis() - started) >= minMs) break;
+    if (fresh >= minFrames && (uint32_t)(millis() - started) >= minMs) {
+      ended = "ready";
+      break;
+    }
+  }
+  uint32_t elapsed = (uint32_t)(millis() - started);
+  if (!ended) {
+    if (elapsed >= timeCap) ended = "timeCap";
+    else ended = "frameCap";
   }
   kerryWdtRestore();
-  if (fresh < 2) return;
-  uint32_t newer = freshTs[fresh - 1];
-  uint32_t older = freshTs[fresh - 2];
-  if (newer <= older) return;
+  bool recorded = false;
+  uint32_t period = 0;
+  if (fresh >= 2) {
+    uint32_t newer = freshTs[fresh - 1];
+    uint32_t older = freshTs[fresh - 2];
+    if (newer > older) {
+      recorded = true;
+      period = newer - older;
+    }
+  }
+  if (!recorded) {
+    const char *reason = "too few fresh frames";
+    if (ended && strcmp(ended, "timeout") == 0) reason = "timeout";
+    else if (fresh >= 2) reason = "non-increasing timestamps";
+    KERRY_LOGW("exposure",
+               "frame period not measured: reason=%s ended=%s attempts=%d timeouts=%d stale=%d fresh=%d elapsed=%ums",
+               reason, ended ? ended : "?", attempts, timeouts, stale, fresh, (unsigned)elapsed);
+    return;
+  }
   sensor_t *s = esp_camera_sensor_get();
   uint16_t pid = s ? s->id.PID : 0;
   framesize_t fs = s ? s->status.framesize : FRAMESIZE_SVGA;
-  kerryCamExposureNoteMeasured(newer - older, cfg, pid, fs);
-  KERRY_LOGD("exposure", "measured frame period %ums", (unsigned)(newer - older));
+  kerryCamExposureNoteMeasured(period, cfg, pid, fs);
+  KERRY_LOGD("exposure", "measured frame period %ums fresh=%d stale=%d", (unsigned)period, fresh, stale);
 }
 
 void kerryCamExposureServiceRevert() {
