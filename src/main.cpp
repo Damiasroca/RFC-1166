@@ -189,6 +189,10 @@ static String probeLocation;
 static portMUX_TYPE statusMux = portMUX_INITIALIZER_UNLOCKED;
 static SemaphoreHandle_t camLock = nullptr;
 static volatile bool camGrabActive = false;
+// Web previews (/capture) in flight or just served; background sampling stays out of their way.
+static volatile int httpCaptureCount = 0;
+static volatile uint32_t lastHttpCaptureMs = 0;
+#define HTTP_CAPTURE_QUIET_MS 15000UL
 static volatile bool camLockHeld = false;
 static httpd_handle_t httpd = nullptr;
 static portMUX_TYPE s_workMux = portMUX_INITIALIZER_UNLOCKED;
@@ -1061,8 +1065,11 @@ bool kerryCamGrabFreshJpegCopy(uint8_t **jpeg, size_t *len) {
   *jpeg = nullptr;
   *len = 0;
   if (!cameraReady) return false;
-  if (!lockCam(3000)) return false;
   kerryWdtLenient();
+  if (!lockCam(3000)) {
+    kerryWdtRestore();
+    return false;
+  }
   dropHeldStaleFrame();
   camera_fb_t *fb = camFbGetHeldLock(false);
   if (fb) logDeliveredFrameAge("sample", fb);
@@ -1133,6 +1140,8 @@ bool kerryCameraReady() { return cameraReady; }
 bool kerryCamSamplingAllowed() {
   if (!kerryCameraReady()) return false;
   if (kerryStreamActive() || kerryCamGrabActive()) return false;
+  if (httpCaptureCount > 0 || (lastHttpCaptureMs && millis() - lastHttpCaptureMs < HTTP_CAPTURE_QUIET_MS))
+    return false;
   const char *blocked = nullptr;
   if (kerryCaptureBlocked(&blocked)) return false;
   if (kerryEcoNetBusy() || kerryUploadInProgress()) return false;
@@ -2089,7 +2098,17 @@ static bool jpegHasEoi(const uint8_t *buf, size_t len) {
   return buf[len - 2] == 0xff && buf[len - 1] == 0xd9;
 }
 
+static esp_err_t captureHandlerImpl(httpd_req_t *req);
+
 static esp_err_t captureHandler(httpd_req_t *req) {
+  httpCaptureCount++;
+  esp_err_t res = captureHandlerImpl(req);
+  lastHttpCaptureMs = millis();
+  httpCaptureCount--;
+  return res;
+}
+
+static esp_err_t captureHandlerImpl(httpd_req_t *req) {
   logHttp(req);
   kerryPmSetActivity(KERRY_ACT_CAPTURE, true);
   if (!lockCam(2000)) {

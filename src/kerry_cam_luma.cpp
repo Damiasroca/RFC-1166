@@ -118,8 +118,13 @@ bool kerryCamSampleLuma(kerry_luma_t *out) {
   if (!out) return false;
   uint8_t *jpeg = nullptr;
   size_t len = 0;
-  if (!kerryCamGrabFreshJpegCopy(&jpeg, &len)) return false;
-  bool ok = kerryLumaFromJpeg(jpeg, len, out);
-  kerryCamFreeJpegCopy(jpeg);
+  // Grab plus a full-frame decode runs on the loop task; keep both under the lenient watchdog.
+  kerryWdtLenient();
+  bool ok = kerryCamGrabFreshJpegCopy(&jpeg, &len);
+  if (ok) {
+    ok = kerryLumaFromJpeg(jpeg, len, out);
+    kerryCamFreeJpegCopy(jpeg);
+  }
+  kerryWdtRestore();
   return ok;
 }

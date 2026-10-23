@@ -209,7 +209,8 @@ void kerryPmReportsInit() {
   doc["reason"] = resetName(rr);
   doc["class"] = classify(rr, deliberate);
   doc["bootTime"] = 0;
-  if (deliberate && prev) doc["cause"] = prev->cause;
+  // Deliberate reboots name their cause; a task watchdog records the stuck tasks there.
+  if (prev && prev->cause[0]) doc["cause"] = prev->cause;
   if (prev && kerryPmHadValidPrevious()) {
     doc["prevUptimeS"] = prev->uptimeS;
     doc["prevEpoch"] = prev->epoch;

@@ -18,7 +18,7 @@
 
       <section class="content-box preview-wrap">
         <h2 class="input-box-til">Live preview</h2>
-        <img id="preview" class="preview" src="/capture" alt="Camera preview">
+        <img id="preview" class="preview" alt="Camera preview">
         <div class="preview-toolbar">
           <span class="preview-meta" id="previewMeta">—</span>
           <div class="btn-row">
@@ -258,7 +258,15 @@
   <script src="/exposure_auto.js"></script>
   <script>
     sidebar("image");
+
+    // One capture at a time: each takes seconds and holds the camera, so the next
+    // frame is requested only after the previous one has finished loading.
+    var PREVIEW_INTERVAL_MS = 4000;
     var previewTimer = null;
+    var previewLoading = false;
+    var previewQueued = false;
+    var previewRunning = false;
+    var previewDelay = PREVIEW_INTERVAL_MS;
 
     function bindRange(id, labelId) {
       var input = document.getElementById(id);
@@ -504,14 +512,67 @@
     }
 
     function refreshPreview() {
-      var img = document.getElementById("preview");
-      img.src = "/capture?t=" + Date.now();
+      if (previewLoading) {
+        previewQueued = true;
+        return;
+      }
+      clearTimeout(previewTimer);
+      previewTimer = null;
+      previewLoading = true;
+      document.getElementById("preview").src = "/capture?t=" + Date.now();
+    }
+
+    function schedulePreview() {
+      clearTimeout(previewTimer);
+      previewTimer = null;
+      if (!previewRunning || document.hidden) return;
+      previewTimer = setTimeout(refreshPreview, previewDelay);
+    }
+
+    function previewDone(ok) {
+      previewLoading = false;
+      previewDelay = ok ? PREVIEW_INTERVAL_MS : Math.min(previewDelay * 2, 60000);
+      if (previewQueued) {
+        previewQueued = false;
+        refreshPreview();
+        return;
+      }
+      schedulePreview();
     }
 
     function startPreviewPoll() {
-      if (previewTimer) clearInterval(previewTimer);
-      previewTimer = setInterval(refreshPreview, 4000);
+      previewRunning = true;
+      if (!previewLoading && !previewTimer) refreshPreview();
     }
+
+    function stopPreviewPoll() {
+      previewRunning = false;
+      previewQueued = false;
+      clearTimeout(previewTimer);
+      previewTimer = null;
+    }
+
+    (function () {
+      var img = document.getElementById("preview");
+      img.addEventListener("load", function () { previewDone(true); });
+      img.addEventListener("error", function () { previewDone(false); });
+      document.addEventListener("visibilitychange", function () {
+        if (document.hidden) {
+          clearTimeout(previewTimer);
+          previewTimer = null;
+        } else if (previewRunning && !previewLoading) {
+          refreshPreview();
+        }
+      });
+      // Leaving the page: drop the in-flight frame so the camera is not left serving it.
+      window.addEventListener("pagehide", function () {
+        stopPreviewPoll();
+        img.removeAttribute("src");
+      });
+      window.addEventListener("pageshow", function (ev) {
+        if (ev.persisted) startPreviewPoll();
+      });
+    })();
 
     function loadImageSettings() {
       ajax({
@@ -544,7 +605,6 @@
           }
           applyExposureFromApi(res.exposure, res.exposureCaps);
           if (res.awb) fillAwbModes(res.awb);
-          refreshPreview();
           startPreviewPoll();
         }
       });

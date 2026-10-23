@@ -8,6 +8,9 @@
 #include <esp_attr.h>
 #include <esp_heap_caps.h>
 #include <esp_system.h>
+#include <esp_task_wdt.h>
+#include <esp_timer.h>
+#include <freertos/task.h>
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -124,6 +127,41 @@ static void saveLastLog() {
   size_t n = kerryLogHistoryRead(0, true, buf, cap, &info);
   if (n) kerryDiagSaveLastLog(buf, n);
   free(buf);
+}
+
+static void wdtCauseAppend(size_t *off, const char *s) {
+  while (*s && *off + 1 < sizeof s_rtc.cause) s_rtc.cause[(*off)++] = *s++;
+  s_rtc.cause[*off] = '\0';
+}
+
+#define WDT_CAUSE_PREFIX "twdt:"
+
+// IDF sends each stuck task as "\n - ", name, " (CPU n)".
+static void wdtTaskMsg(void *opaque, const char *msg) {
+  if (!msg || strstr(msg, "Task watchdog")) return;
+  size_t *off = (size_t *)opaque;
+  if (*msg == '\n') {
+    wdtCauseAppend(off, *off > sizeof WDT_CAUSE_PREFIX - 1 ? "; " : " ");
+    return;
+  }
+  wdtCauseAppend(off, msg);
+}
+
+// Runs in the TWDT interrupt just before the panic. The panic text only reaches the
+// UART, so record the stuck tasks and what each core was running in the RTC record.
+extern "C" void esp_task_wdt_isr_user_handler(void) {
+  size_t off = 0;
+  s_rtc.cause[0] = '\0';
+  wdtCauseAppend(&off, WDT_CAUSE_PREFIX);
+  esp_task_wdt_print_triggered_tasks(wdtTaskMsg, &off, nullptr);
+  wdtCauseAppend(&off, " | run:");
+  for (int cpu = 0; cpu < portNUM_PROCESSORS; cpu++) {
+    TaskHandle_t t = xTaskGetCurrentTaskHandleForCore(cpu);
+    const char *name = t ? pcTaskGetName(t) : nullptr;
+    wdtCauseAppend(&off, cpu ? "/" : " ");
+    wdtCauseAppend(&off, name ? name : "?");
+  }
+  s_rtc.uptimeS = (uint32_t)(esp_timer_get_time() / 1000000LL);
 }
 
 void kerryRebootWithCause(const char *cause) {
