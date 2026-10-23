@@ -32,12 +32,13 @@ function ajax(option) {
     method: "GET",
     url: "",
     data: {},
+    timeout: 60000,
     success: function () {},
     error: function () {}
   }, option);
   init.method = init.method.toUpperCase();
   var xhr = new XMLHttpRequest();
-  xhr.timeout = 60000;
+  xhr.timeout = init.timeout;
   xhr.responseType = "json";
   xhr.onreadystatechange = function () {
     if (xhr.readyState !== 4) return;
@@ -55,6 +56,54 @@ function ajax(option) {
     xhr.setRequestHeader("Content-Type", "application/json");
     xhr.send(JSON.stringify(init.data || {}));
   }
+}
+
+// Runs task(done) every intervalMs, never overlapping. The camera serves one request
+// at a time, so the next run waits for the previous one; done(false) backs off.
+function poller(intervalMs, task) {
+  var timer = null;
+  var running = false;
+  var stopped = true;
+  var delay = intervalMs;
+
+  function schedule(ms) {
+    clearTimeout(timer);
+    timer = setTimeout(tick, ms);
+  }
+
+  function tick() {
+    timer = null;
+    if (stopped || running) return;
+    if (document.hidden) {
+      schedule(intervalMs);
+      return;
+    }
+    running = true;
+    task(function (ok) {
+      running = false;
+      delay = ok === false ? Math.min(delay * 2, 60000) : intervalMs;
+      if (!stopped) schedule(delay);
+    });
+  }
+
+  var api = {
+    start: function () {
+      stopped = false;
+      if (!running && !timer) schedule(0);
+    },
+    stop: function () {
+      stopped = true;
+      clearTimeout(timer);
+      timer = null;
+    },
+    now: function () {
+      if (!stopped && !running) schedule(0);
+    }
+  };
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) api.now();
+  });
+  return api;
 }
 
 function toast(msg, kind) {

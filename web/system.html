@@ -255,7 +255,7 @@
             <button type="button" class="common-btn btn-secondary" id="diagLogPauseBtn" onclick="diagToggleLogPause()">Pause</button>
             <button type="button" class="common-btn btn-secondary" onclick="diagClearLogView()">Clear view</button>
             <button type="button" class="common-btn btn-secondary" onclick="diagDownloadLog()">Download</button>
-            <span class="hint hint-end" id="diagLogStatus">Live · updated every 5 s</span>
+            <span class="hint hint-end" id="diagLogStatus">Connecting…</span>
           </div>
           <pre id="diagLogPanel" class="log-panel"></pre>
         </div>
@@ -276,7 +276,7 @@
   <script>
     sidebar("system");
 
-    var memPollTimer = null;
+    var memPoll = null;
 
     function fmtUptime(sec) {
       if (sec === null || sec === undefined || sec < 0) return "—";
@@ -331,35 +331,47 @@
       setText("memSketchFree", fmtBytes(mem.sketch_free));
     }
 
-    function loadSystem() {
+    function loadSystem(done) {
+      done = done || function () {};
       ajax({
         url: "/api/system",
+        timeout: 10000,
+        error: function () { done(false); },
         success: function (res) {
-          var fw = res.label || res.version || "Kerry Cam";
-          if (res.buildEnv) fw += " · " + res.buildEnv;
-          if (res.git && res.git !== "nogit") fw += " · " + res.git;
-          document.getElementById("fwVersion").textContent = fw;
-          document.getElementById("wd_en").checked = !!res.wd_en;
-          document.getElementById("wd_cam_n").value = res.wd_cam_n || 3;
-          document.getElementById("wd_up_n").value = res.wd_up_n || 3;
-          document.getElementById("wd_cap_n").value = res.wd_cap_n || 3;
-          document.getElementById("wd_cap_m").value = res.wd_cap_m || 60;
-          var wd = "Camera fails: " + (res.wd_cam_fail || 0) + " · Upload fails: " + (res.wd_up_fail || 0);
-          if (res.lastWdCause) wd += " · Last watchdog: " + res.lastWdCause;
-          document.getElementById("wdStatus").textContent = wd;
-          var t = res.time || {};
-          document.getElementById("localTime").textContent = t.localTime || (t.clockSynced ? "Synced" : "Waiting for NTP");
-          var tz = t.tzIana || "";
-          if (tz && t.dst) tz += " (DST)";
-          document.getElementById("tzName").textContent = tz || "—";
-          paintMemory(res.mem);
+          try {
+            paintSystem(res);
+          } finally {
+            done(true);
+          }
         }
       });
     }
 
+    function paintSystem(res) {
+      var fw = res.label || res.version || "Kerry Cam";
+      if (res.buildEnv) fw += " · " + res.buildEnv;
+      if (res.git && res.git !== "nogit") fw += " · " + res.git;
+      document.getElementById("fwVersion").textContent = fw;
+      document.getElementById("wd_en").checked = !!res.wd_en;
+      document.getElementById("wd_cam_n").value = res.wd_cam_n || 3;
+      document.getElementById("wd_up_n").value = res.wd_up_n || 3;
+      document.getElementById("wd_cap_n").value = res.wd_cap_n || 3;
+      document.getElementById("wd_cap_m").value = res.wd_cap_m || 60;
+      var wd = "Camera fails: " + (res.wd_cam_fail || 0) + " · Upload fails: " + (res.wd_up_fail || 0);
+      if (res.lastWdCause) wd += " · Last watchdog: " + res.lastWdCause;
+      document.getElementById("wdStatus").textContent = wd;
+      var t = res.time || {};
+      document.getElementById("localTime").textContent = t.localTime || (t.clockSynced ? "Synced" : "Waiting for NTP");
+      var tz = t.tzIana || "";
+      if (tz && t.dst) tz += " (DST)";
+      document.getElementById("tzName").textContent = tz || "—";
+      paintMemory(res.mem);
+      if (typeof diagNoteSystem === "function") diagNoteSystem(res);
+    }
+
     function startMemoryPoll() {
-      if (memPollTimer) clearInterval(memPollTimer);
-      memPollTimer = setInterval(loadSystem, 3000);
+      if (!memPoll) memPoll = poller(3000, loadSystem);
+      memPoll.start();
     }
 
     function saveWatchdog() {
@@ -441,9 +453,8 @@
     }
 
     requireAuth(function () {
-      loadSystem();
-      startMemoryPoll();
       if (typeof diagInit === "function") diagInit();
+      startMemoryPoll();
     });
   </script>
 </body>
