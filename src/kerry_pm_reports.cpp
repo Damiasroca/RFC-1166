@@ -19,7 +19,7 @@
 #include <time.h>
 
 #define KPM_NS "kpm"
-#define REPORT_MAX 2600
+#define REPORT_MAX KERRY_DIAG_REPORT_MAX
 
 static uint32_t s_bootSeq = 0;
 static char s_curReport[REPORT_MAX];
@@ -234,6 +234,7 @@ void kerryPmReportsInit() {
   if (n > 0) {
     s_haveCurReport = true;
     bool stored = kerryDiagStoreReport(s_bootSeq, s_curReport, n);
+    kerryDiagClaimLastLog(s_bootSeq);
 #if CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH && CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF
     if (s_eraseCoredump && stored) esp_core_dump_image_erase();
 #endif

@@ -2531,13 +2531,14 @@ static void logHeartbeat() {
 
 static void startHttp() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-  config.max_uri_handlers = 52;
+  config.max_uri_handlers = 56;
   config.max_open_sockets = 7;
   config.lru_purge_enable = true;
   config.backlog_conn = 5;
   config.stack_size = 16384;
-  config.recv_wait_timeout = 60;
-  config.send_wait_timeout = 30;
+  // One handler runs at a time; a stuck socket must not hold the server for long.
+  config.recv_wait_timeout = 15;
+  config.send_wait_timeout = 10;
   config.server_port = 80;
   if (httpd_start(&httpd, &config) != ESP_OK) {
     Serial.println("Web server failed to start");

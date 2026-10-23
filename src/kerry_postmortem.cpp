@@ -1,6 +1,8 @@
 #include "kerry_postmortem.h"
 
+#include "kerry_diag_fs.h"
 #include "kerry_log.h"
+#include "kerry_log_history.h"
 #include "kerry_version.h"
 
 #include <esp_attr.h>
@@ -113,6 +115,17 @@ void kerryPmHeartbeat() {
   }
 }
 
+static void saveLastLog() {
+  size_t cap = KERRY_DIAG_LOG_MAX + 1;
+  char *buf = (char *)heap_caps_malloc(cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!buf) buf = (char *)malloc(cap);
+  if (!buf) return;
+  kerry_log_read_t info;
+  size_t n = kerryLogHistoryRead(0, true, buf, cap, &info);
+  if (n) kerryDiagSaveLastLog(buf, n);
+  free(buf);
+}
+
 void kerryRebootWithCause(const char *cause) {
   if (cause) {
     portENTER_CRITICAL(&s_pmMux);
@@ -124,6 +137,7 @@ void kerryRebootWithCause(const char *cause) {
   if (cause) KERRY_LOGW("main", "rebooting: %s", cause);
   else KERRY_LOGW("main", "rebooting");
   kerryStatsFlush();
+  saveLastLog();
   Serial.flush();
   delay(400);
   esp_restart();

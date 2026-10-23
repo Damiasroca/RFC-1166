@@ -73,44 +73,57 @@ void kerryLogHistoryWrite(const char *line, int len) {
   xSemaphoreGive(s_mu);
 }
 
-size_t kerryLogHistoryRead(uint32_t sinceSeq, char *out, size_t cap, uint32_t *lastSeq, bool *truncated) {
-  if (!out || cap < 2 || !lastSeq || !truncated) return 0;
-  *lastSeq = sinceSeq;
-  *truncated = false;
+static inline char histAt(size_t rel) { return s_buf[(s_head + rel) % s_cap]; }
+
+// First line start whose stored bytes (seq prefix included) fit in budget.
+static size_t tailStart(size_t budget) {
+  if (s_used <= budget) return 0;
+  size_t rel = s_used - budget;
+  while (rel < s_used && histAt(rel - 1) != '\n') rel++;
+  return rel;
+}
+
+size_t kerryLogHistoryRead(uint32_t sinceSeq, bool tail, char *out, size_t cap, kerry_log_read_t *info) {
+  if (!out || cap < 2 || !info) return 0;
+  info->lastSeq = sinceSeq;
+  info->truncated = false;
+  info->more = false;
+  out[0] = '\0';
   if (!s_buf || !s_mu) return 0;
   if (xSemaphoreTake(s_mu, pdMS_TO_TICKS(100)) != pdTRUE) return 0;
-  *truncated = sinceSeq > 0 && sinceSeq < s_oldestSeq;
+  if (sinceSeq > s_seq) {
+    // The client's cursor is from before a reboot.
+    sinceSeq = 0;
+    info->lastSeq = 0;
+    info->truncated = true;
+  }
+  if (sinceSeq > 0 && sinceSeq + 1 < s_oldestSeq) info->truncated = true;
   size_t written = 0;
-  size_t pos = s_head;
-  size_t scanned = 0;
-  while (scanned < s_used && written + 256 < cap) {
-    size_t lineStart = pos;
-    size_t lineLen = 0;
-    while (scanned < s_used) {
-      char c = s_buf[pos];
-      pos = (pos + 1) % s_cap;
-      scanned++;
-      lineLen++;
-      if (c == '\n') break;
+  size_t rel = (tail && sinceSeq == 0) ? tailStart(cap - 1) : 0;
+  while (rel < s_used) {
+    size_t lineStart = rel;
+    while (rel < s_used && histAt(rel) != '\n') rel++;
+    size_t lineEnd = rel;
+    if (rel < s_used) rel++;
+    uint32_t seq = 0;
+    size_t i = lineStart;
+    while (i < lineEnd && histAt(i) >= '0' && histAt(i) <= '9') {
+      seq = seq * 10 + (uint32_t)(histAt(i) - '0');
+      i++;
     }
-    if (lineLen < 2) continue;
-    char seqBuf[16];
-    size_t si = 0;
-    for (size_t i = 0; i < lineLen - 1 && si + 1 < sizeof seqBuf; i++) {
-      char c = s_buf[(lineStart + i) % s_cap];
-      if (c == ':') break;
-      seqBuf[si++] = c;
-    }
-    seqBuf[si] = '\0';
-    uint32_t seq = (uint32_t)strtoul(seqBuf, nullptr, 10);
+    if (i < lineEnd && histAt(i) == ':') i++;
     if (seq <= sinceSeq) continue;
-    *lastSeq = seq;
-    for (size_t i = si + 1; i < lineLen - 1; i++) {
-      if (written + 2 >= cap) break;
-      out[written++] = s_buf[(lineStart + i) % s_cap];
+    size_t textLen = lineEnd - i;
+    if (written + textLen + 1 >= cap) {
+      if (written) {
+        info->more = true;
+        break;
+      }
+      textLen = cap - 2;
     }
-    if (written + 2 >= cap) break;
+    for (size_t k = 0; k < textLen; k++) out[written++] = histAt(i + k);
     out[written++] = '\n';
+    info->lastSeq = seq;
   }
   out[written] = '\0';
   xSemaphoreGive(s_mu);

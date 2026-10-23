@@ -38,9 +38,24 @@ static void clearAuthCookie(httpd_req_t *req) {
   httpd_resp_set_hdr(req, "Set-Cookie", "KerryCamAuth=0; Path=/; Max-Age=0; HttpOnly");
 }
 
+// Assets only change with the firmware, so the build id is a valid ETag.
+static const char *assetEtag() {
+  static char etag[48];
+  if (!etag[0]) snprintf(etag, sizeof etag, "\"%s\"", kerryFirmwareBuildId());
+  return etag;
+}
+
 static esp_err_t sendAsset(httpd_req_t *req, const WebAsset *asset) {
-  httpd_resp_set_type(req, asset->content_type);
+  const char *etag = assetEtag();
   httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+  httpd_resp_set_hdr(req, "ETag", etag);
+  char inm[48];
+  if (httpd_req_get_hdr_value_str(req, "If-None-Match", inm, sizeof inm) == ESP_OK && strcmp(inm, etag) == 0) {
+    httpd_resp_set_status(req, "304 Not Modified");
+    return httpd_resp_send(req, nullptr, 0);
+  }
+  httpd_resp_set_type(req, asset->content_type);
+  if (asset->gzip) httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
   return httpd_resp_send(req, (const char *)asset->data, asset->size);
 }
 
@@ -354,7 +369,7 @@ static void fillMemoryJson(JsonObject obj) {
 
 static esp_err_t apiSystemGet(httpd_req_t *req) {
   if (!requireAuth(req, true)) return ESP_OK;
-  JsonDocument doc;
+  JsonDocument doc(kerryJsonPsramAllocator());
   const esp_app_desc_t *app = esp_app_get_description();
   doc["version"] = kerryFirmwareVersion();
   doc["buildId"] = kerryFirmwareBuildId();
