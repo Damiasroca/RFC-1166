@@ -14,24 +14,70 @@
 #include "web_diag_api.h"
 #include "kerry_postmortem.h"
 
+#include <esp_mac.h>
 #include <esp_ota_ops.h>
 #include <esp_heap_caps.h>
 #include <esp_system.h>
+#include <mbedtls/sha256.h>
 
 #include <ArduinoJson.h>
 #include <WiFi.h>
 
-static bool gLoggedIn = false;
+#define AUTH_COOKIE "KerryCamAuth="
+#define AUTH_TOKEN_LEN 32
+
+// Session token derived from the AP password and this board's MAC: it survives reboots,
+// cannot be forged without the password, and changes whenever the password does.
+static const char *sessionToken() {
+  static char token[AUTH_TOKEN_LEN + 1];
+  if (token[AUTH_TOKEN_LEN - 1]) return token;
+  static const char kSalt[] = "kerrycam-session-v1";
+  uint8_t mac[6] = {};
+  esp_efuse_mac_get_default(mac);
+  uint8_t digest[32];
+  mbedtls_sha256_context ctx;
+  mbedtls_sha256_init(&ctx);
+  mbedtls_sha256_starts(&ctx, 0);
+  mbedtls_sha256_update(&ctx, (const uint8_t *)kSalt, sizeof kSalt - 1);
+  mbedtls_sha256_update(&ctx, (const uint8_t *)AP_PASS, strlen(AP_PASS));
+  mbedtls_sha256_update(&ctx, mac, sizeof mac);
+  mbedtls_sha256_finish(&ctx, digest);
+  mbedtls_sha256_free(&ctx);
+  for (int i = 0; i < AUTH_TOKEN_LEN / 2; i++) snprintf(token + i * 2, 3, "%02x", digest[i]);
+  return token;
+}
+
+static bool tokenMatches(const char *v, size_t n) {
+  if (n != AUTH_TOKEN_LEN) return false;
+  const char *tok = sessionToken();
+  uint8_t diff = 0;
+  for (size_t i = 0; i < AUTH_TOKEN_LEN; i++) diff |= (uint8_t)(v[i] ^ tok[i]);
+  return diff == 0;
+}
+
+static bool passwordMatches(const char *pwd) {
+  size_t n = strlen(pwd);
+  size_t want = strlen(AP_PASS);
+  uint8_t diff = n == want ? 0 : 1;
+  for (size_t i = 0; i < n; i++) diff |= (uint8_t)(pwd[i] ^ AP_PASS[i % (want ? want : 1)]);
+  return diff == 0;
+}
 
 bool cookieAuth(httpd_req_t *req) {
-  if (gLoggedIn) return true;
-  char cookie[128];
+  char cookie[384];
   if (httpd_req_get_hdr_value_str(req, "Cookie", cookie, sizeof(cookie)) != ESP_OK) return false;
-  return strstr(cookie, "KerryCamAuth=1") != nullptr;
+  for (const char *p = strstr(cookie, AUTH_COOKIE); p; p = strstr(p + 1, AUTH_COOKIE)) {
+    if (p != cookie && p[-1] != ' ' && p[-1] != ';') continue;
+    const char *v = p + sizeof AUTH_COOKIE - 1;
+    if (tokenMatches(v, strcspn(v, "; "))) return true;
+  }
+  return false;
 }
 
 static void setAuthCookie(httpd_req_t *req) {
-  httpd_resp_set_hdr(req, "Set-Cookie", "KerryCamAuth=1; Path=/; HttpOnly");
+  static char hdr[96];
+  snprintf(hdr, sizeof hdr, AUTH_COOKIE "%s; Path=/; HttpOnly; SameSite=Lax", sessionToken());
+  httpd_resp_set_hdr(req, "Set-Cookie", hdr);
 }
 
 static void clearAuthCookie(httpd_req_t *req) {
@@ -104,14 +150,12 @@ static esp_err_t apiLogin(httpd_req_t *req) {
     return sendJson(req, out);
   }
   const char *pwd = in["password"] | "";
-  bool ok = strcmp(pwd, AP_PASS) == 0;
+  bool ok = passwordMatches(pwd);
   JsonDocument out;
   if (ok) {
-    gLoggedIn = true;
     setAuthCookie(req);
     out["ok"] = true;
   } else {
-    gLoggedIn = false;
     out["ok"] = false;
     out["message"] = "Wrong password";
   }
@@ -119,7 +163,6 @@ static esp_err_t apiLogin(httpd_req_t *req) {
 }
 
 static esp_err_t apiLogout(httpd_req_t *req) {
-  gLoggedIn = false;
   clearAuthCookie(req);
   JsonDocument doc;
   doc["ok"] = true;

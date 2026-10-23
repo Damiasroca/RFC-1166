@@ -267,6 +267,8 @@
     var previewQueued = false;
     var previewRunning = false;
     var previewDelay = PREVIEW_INTERVAL_MS;
+    var previewAbort = null;
+    var previewUrl = null;
 
     function bindRange(id, labelId) {
       var input = document.getElementById(id);
@@ -511,6 +513,15 @@
       });
     }
 
+    function showPreviewBlob(blob) {
+      var old = previewUrl;
+      previewUrl = URL.createObjectURL(blob);
+      document.getElementById("preview").src = previewUrl;
+      if (old) URL.revokeObjectURL(old);
+    }
+
+    // Fetched off-screen and swapped in on success, so a busy or failed frame keeps
+    // the last good one on screen. preview=1 lets the camera answer 503 during uploads.
     function refreshPreview() {
       if (previewLoading) {
         previewQueued = true;
@@ -519,7 +530,23 @@
       clearTimeout(previewTimer);
       previewTimer = null;
       previewLoading = true;
-      document.getElementById("preview").src = "/capture?t=" + Date.now();
+      previewAbort = window.AbortController ? new AbortController() : null;
+      fetch("/capture?preview=1&t=" + Date.now(), {
+        cache: "no-store",
+        credentials: "same-origin",
+        signal: previewAbort ? previewAbort.signal : undefined
+      })
+        .then(function (res) {
+          if (res.status === 503) return null;
+          var type = res.headers.get("Content-Type") || "";
+          if (!res.ok || type.indexOf("image/") !== 0) throw new Error("HTTP " + res.status);
+          return res.blob();
+        })
+        .then(function (blob) {
+          if (blob) showPreviewBlob(blob);
+          previewDone(true);
+        })
+        .catch(function () { previewDone(false); });
     }
 
     function schedulePreview() {
@@ -531,6 +558,7 @@
 
     function previewDone(ok) {
       previewLoading = false;
+      previewAbort = null;
       previewDelay = ok ? PREVIEW_INTERVAL_MS : Math.min(previewDelay * 2, 60000);
       if (previewQueued) {
         previewQueued = false;
@@ -553,9 +581,6 @@
     }
 
     (function () {
-      var img = document.getElementById("preview");
-      img.addEventListener("load", function () { previewDone(true); });
-      img.addEventListener("error", function () { previewDone(false); });
       document.addEventListener("visibilitychange", function () {
         if (document.hidden) {
           clearTimeout(previewTimer);
@@ -567,7 +592,7 @@
       // Leaving the page: drop the in-flight frame so the camera is not left serving it.
       window.addEventListener("pagehide", function () {
         stopPreviewPoll();
-        img.removeAttribute("src");
+        if (previewAbort) previewAbort.abort();
       });
       window.addEventListener("pageshow", function (ev) {
         if (ev.persisted) startPreviewPoll();

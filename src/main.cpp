@@ -2033,8 +2033,11 @@ static String readRequestBody(httpd_req_t *req) {
   return body;
 }
 
+bool requireAuth(httpd_req_t *req, bool json);
+
 static esp_err_t imageHandler(httpd_req_t *req) {
   logHttp(req);
+  if (!requireAuth(req, false)) return ESP_OK;
   String body = readRequestBody(req);
   if (!body.length()) {
     httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Empty form");
@@ -2080,6 +2083,7 @@ void kerryRetryPortal() {
 
 static esp_err_t uploadNowHandler(httpd_req_t *req) {
   logHttp(req);
+  if (!requireAuth(req, false)) return ESP_OK;
   char msg[96];
   if (!kerryUploadNow(msg, sizeof msg)) {
     httpd_resp_set_status(req, "503 Service Unavailable");
@@ -2108,7 +2112,22 @@ static esp_err_t captureHandler(httpd_req_t *req) {
   return res;
 }
 
+static bool isPreviewRequest(httpd_req_t *req) {
+  char q[48];
+  char v[4];
+  if (httpd_req_get_url_query_str(req, q, sizeof q) != ESP_OK) return false;
+  return httpd_query_key_value(q, "preview", v, sizeof v) == ESP_OK && v[0] == '1';
+}
+
 static esp_err_t captureHandlerImpl(httpd_req_t *req) {
+  // The web preview yields to uploads instead of queueing on the camera behind them.
+  if ((uploadInProgress || kerryEcoNetBusy()) && isPreviewRequest(req)) {
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_set_hdr(req, "Retry-After", "5");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    httpd_resp_set_type(req, "text/plain");
+    return httpd_resp_sendstr(req, "Upload in progress");
+  }
   logHttp(req);
   kerryPmSetActivity(KERRY_ACT_CAPTURE, true);
   if (!lockCam(2000)) {
@@ -2359,6 +2378,7 @@ static esp_err_t streamHandler(httpd_req_t *req) {
 
 static esp_err_t flashHandler(httpd_req_t *req) {
   logHttp(req);
+  if (!requireAuth(req, false)) return ESP_OK;
   flashOn = !flashOn;
   if (flashOn) flashOnSince = millis();
   applyFlash();
@@ -2370,6 +2390,7 @@ static esp_err_t flashHandler(httpd_req_t *req) {
 
 static esp_err_t flipHHandler(httpd_req_t *req) {
   logHttp(req);
+  if (!requireAuth(req, false)) return ESP_OK;
   flipH = !flipH;
   saveImageSettings();
   if (lockCam(2000)) {
@@ -2385,6 +2406,7 @@ static esp_err_t flipHHandler(httpd_req_t *req) {
 
 static esp_err_t flipVHandler(httpd_req_t *req) {
   logHttp(req);
+  if (!requireAuth(req, false)) return ESP_OK;
   flipV = !flipV;
   saveImageSettings();
   if (lockCam(2000)) {
@@ -2400,6 +2422,7 @@ static esp_err_t flipVHandler(httpd_req_t *req) {
 
 static esp_err_t retryHandler(httpd_req_t *req) {
   logHttp(req);
+  if (!requireAuth(req, false)) return ESP_OK;
   kerryRetryPortal();
   httpd_resp_set_status(req, "302 Found");
   httpd_resp_set_hdr(req, "Location", "/index.html");
@@ -2537,8 +2560,9 @@ static int apChannel();
 
 static void logHeartbeat() {
   char snap[176];
-  const char *ship =
-      WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : (wifiSsid.length() ? "joining" : "off");
+  // Keep the String alive: a c_str() of the temporary would dangle.
+  String shipIp = WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : String();
+  const char *ship = shipIp.length() ? shipIp.c_str() : (wifiSsid.length() ? "joining" : "off");
   snprintf(snap, sizeof snap, "ch=%d ship=%s portal=%s ap_clients=%u cam=%d status=%s", apChannel(), ship,
            portalOk ? "open" : "closed", WiFi.softAPgetStationNum(), cameraReady ? 1 : 0, portalStatus);
   if (kerry_log_if_changed("heartbeat", snap)) {

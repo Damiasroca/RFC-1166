@@ -277,6 +277,9 @@
     sidebar("system");
 
     var memPoll = null;
+    // Watchdog inputs are filled once (and after a save) so the 3 s refresh never
+    // overwrites what is being typed.
+    var wdFormLoaded = false;
 
     function fmtUptime(sec) {
       if (sec === null || sec === undefined || sec < 0) return "—";
@@ -352,11 +355,14 @@
       if (res.buildEnv) fw += " · " + res.buildEnv;
       if (res.git && res.git !== "nogit") fw += " · " + res.git;
       document.getElementById("fwVersion").textContent = fw;
-      document.getElementById("wd_en").checked = !!res.wd_en;
-      document.getElementById("wd_cam_n").value = res.wd_cam_n || 3;
-      document.getElementById("wd_up_n").value = res.wd_up_n || 3;
-      document.getElementById("wd_cap_n").value = res.wd_cap_n || 3;
-      document.getElementById("wd_cap_m").value = res.wd_cap_m || 60;
+      if (!wdFormLoaded) {
+        wdFormLoaded = true;
+        document.getElementById("wd_en").checked = !!res.wd_en;
+        document.getElementById("wd_cam_n").value = res.wd_cam_n || 3;
+        document.getElementById("wd_up_n").value = res.wd_up_n || 3;
+        document.getElementById("wd_cap_n").value = res.wd_cap_n || 3;
+        document.getElementById("wd_cap_m").value = res.wd_cap_m || 60;
+      }
       var wd = "Camera fails: " + (res.wd_cam_fail || 0) + " · Upload fails: " + (res.wd_up_fail || 0);
       if (res.lastWdCause) wd += " · Last watchdog: " + res.lastWdCause;
       document.getElementById("wdStatus").textContent = wd;
@@ -387,7 +393,10 @@
         },
         success: function (res) {
           toast(res.message || "Saved", res.ok ? "ok" : "err");
-          if (res.ok) loadSystem();
+          if (res.ok) {
+            wdFormLoaded = false;
+            loadSystem();
+          }
         }
       });
     }
